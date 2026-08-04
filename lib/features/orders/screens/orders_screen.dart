@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../models/order.dart';
 import '../providers/orders_provider.dart';
+import '../widgets/multi_zr_send_dialog.dart';
 import '../widgets/order_card.dart';
 
 class OrdersScreen extends ConsumerStatefulWidget {
@@ -20,6 +23,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   String _search = '';
   String _dateFilter = 'all';
   DateTimeRange? _customRange;
+  bool _multiZrMode = false;
+  final Set<String> _selectedForZr = {};
 
   DateTimeRange? _activeDateRange() {
     final now = DateTime.now();
@@ -67,9 +72,61 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     }
   }
 
+  Future<void> _startSending() async {
+    final allOrders = ref.read(ordersStreamProvider).valueOrNull ?? [];
+    final selected =
+        allOrders.where((o) => _selectedForZr.contains(o.id)).toList();
+    if (selected.isEmpty) return;
+
+    final ok = await AppConfirmDialog.show(
+      context,
+      icon: Icons.local_shipping_outlined,
+      iconColor: AppColors.primary,
+      confirmColor: AppColors.primary,
+      title: 'Send to ZR Express',
+      message:
+          'This will submit ${selected.length} order(s) to ZR Express. This cannot be undone.',
+      confirmLabel: 'Start Sending',
+    );
+    if (ok != true || !mounted) return;
+
+    final service = ref.read(ordersServiceProvider);
+    final result =
+        await MultiZrSendDialog.show(context, orders: selected, service: service);
+    if (!mounted) return;
+
+    setState(() {
+      _multiZrMode = false;
+      _selectedForZr.clear();
+    });
+
+    if (result.errorMessage != null) {
+      await AppConfirmDialog.showAlert(
+        context,
+        icon: Icons.error_outline,
+        iconColor: AppColors.error,
+        title: result.succeeded > 0 ? 'Sending Stopped' : 'Send Failed',
+        message: result.succeeded > 0
+            ? '${result.succeeded} order(s) sent successfully before an error occurred:\n\n${result.errorMessage}'
+            : result.errorMessage!,
+      );
+    } else {
+      await AppConfirmDialog.showAlert(
+        context,
+        icon: Icons.check_circle_outline,
+        iconColor: AppColors.success,
+        title: 'Sent to ZR Express',
+        message:
+            'Successfully sent ${result.succeeded} order(s) to ZR Express.',
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ordersAsync = ref.watch(ordersStreamProvider);
+    final isAdmin =
+        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -82,18 +139,36 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/orders/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('New Order'),
-      ),
+      floatingActionButton: !_multiZrMode
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push('/orders/new'),
+              icon: const Icon(Icons.add),
+              label: const Text('New Order'),
+            )
+          : (_selectedForZr.isEmpty
+              ? null
+              : FloatingActionButton.extended(
+                  onPressed: _startSending,
+                  icon: const Icon(Icons.local_shipping_outlined),
+                  label: Text('Start Sending (${_selectedForZr.length})'),
+                )),
       body: Column(
         children: [
           _SearchBar(onChanged: (v) => setState(() => _search = v)),
-          _FilterChips(
-            selected: _filter,
-            onSelected: (s) => setState(() => _filter = s),
-          ),
+          if (_multiZrMode)
+            _MultiZrHeader(
+              onCancel: () => setState(() {
+                _multiZrMode = false;
+                _selectedForZr.clear();
+              }),
+            )
+          else
+            _FilterChips(
+              selected: _filter,
+              onSelected: (s) => setState(() => _filter = s),
+              showMultiZr: isAdmin,
+              onMultiZr: () => setState(() => _multiZrMode = true),
+            ),
           _DateFilterChips(
             selected: _dateFilter,
             onSelected: (v) => setState(() => _dateFilter = v),
@@ -106,9 +181,16 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (orders) {
                 final activeRange = _activeDateRange();
-                final filtered = orders.where((o) {
-                  final matchStatus =
-                      _filter == null || o.status == _filter;
+                final eligible = _multiZrMode
+                    ? orders.where((o) =>
+                        o.status == OrderStatus.pending &&
+                        !o.zrSubmitted &&
+                        o.hasZrShippingData)
+                    : orders;
+                final filtered = eligible.where((o) {
+                  final matchStatus = _multiZrMode ||
+                      _filter == null ||
+                      o.status == _filter;
                   final matchSearch = _search.isEmpty ||
                       o.customerName
                           .toLowerCase()
@@ -127,13 +209,21 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         child: SizedBox(
                           height: constraints.maxHeight,
-                          child: EmptyState(
-                            icon: Icons.shopping_bag_outlined,
-                            title: 'No orders found',
-                            subtitle: 'Create your first order to get started.',
-                            action: () => context.push('/orders/new'),
-                            actionLabel: 'Create Order',
-                          ),
+                          child: _multiZrMode
+                              ? const EmptyState(
+                                  icon: Icons.local_shipping_outlined,
+                                  title: 'No orders to send',
+                                  subtitle:
+                                      'No pending orders with ZR shipping info match this date range.',
+                                )
+                              : EmptyState(
+                                  icon: Icons.shopping_bag_outlined,
+                                  title: 'No orders found',
+                                  subtitle:
+                                      'Create your first order to get started.',
+                                  action: () => context.push('/orders/new'),
+                                  actionLabel: 'Create Order',
+                                ),
                         ),
                       ),
                     ),
@@ -145,10 +235,25 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                   child: ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: filtered.length,
-                    itemBuilder: (context, i) => OrderCard(
-                      order: filtered[i],
-                      onTap: () => context.push('/orders/${filtered[i].id}'),
-                    ),
+                    itemBuilder: (context, i) {
+                      final order = filtered[i];
+                      if (_multiZrMode) {
+                        return OrderCard(
+                          order: order,
+                          selectionMode: true,
+                          isSelected: _selectedForZr.contains(order.id),
+                          onTap: () => setState(() {
+                            if (!_selectedForZr.remove(order.id)) {
+                              _selectedForZr.add(order.id);
+                            }
+                          }),
+                        );
+                      }
+                      return OrderCard(
+                        order: order,
+                        onTap: () => context.push('/orders/${order.id}'),
+                      );
+                    },
                   ),
                 );
               },
@@ -180,9 +285,16 @@ class _SearchBar extends StatelessWidget {
 }
 
 class _FilterChips extends StatelessWidget {
-  const _FilterChips({required this.selected, required this.onSelected});
+  const _FilterChips({
+    required this.selected,
+    required this.onSelected,
+    this.showMultiZr = false,
+    this.onMultiZr,
+  });
   final OrderStatus? selected;
   final ValueChanged<OrderStatus?> onSelected;
+  final bool showMultiZr;
+  final VoidCallback? onMultiZr;
 
   @override
   Widget build(BuildContext context) {
@@ -207,6 +319,71 @@ class _FilterChips extends StatelessWidget {
                     onSelected(selected == s ? null : s),
               ),
             ),
+          ),
+          if (showMultiZr) ...[
+            const SizedBox(width: 4),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onMultiZr,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.primary, width: 1.5),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.local_shipping_outlined,
+                          size: 15, color: AppColors.primary),
+                      SizedBox(width: 6),
+                      Text(
+                        'Multi-ZR',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MultiZrHeader extends StatelessWidget {
+  const _MultiZrHeader({required this.onCancel});
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Select pending orders not yet sent to ZR',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onCancel,
+            child: const Text('Cancel'),
           ),
         ],
       ),

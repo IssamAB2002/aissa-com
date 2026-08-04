@@ -6,10 +6,18 @@ import '../models/order.dart';
 import 'order_status_badge.dart';
 
 class OrderCard extends StatelessWidget {
-  const OrderCard({super.key, required this.order, required this.onTap});
+  const OrderCard({
+    super.key,
+    required this.order,
+    required this.onTap,
+    this.selectionMode = false,
+    this.isSelected = false,
+  });
 
   final Order order;
   final VoidCallback onTap;
+  final bool selectionMode;
+  final bool isSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -19,9 +27,14 @@ class OrderCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: isSelected
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.cardBorder),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.cardBorder,
+            width: isSelected ? 1.5 : 1,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -29,12 +42,38 @@ class OrderCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '#${order.id.substring(0, 8).toUpperCase()}',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontFamily: 'monospace',
-                        letterSpacing: 1,
+                Row(
+                  children: [
+                    if (selectionMode) ...[
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color:
+                              isSelected ? AppColors.primary : Colors.transparent,
+                          border: Border.all(
+                            color: isSelected
+                                ? AppColors.primary
+                                : AppColors.cardBorder,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check,
+                                size: 14, color: Colors.white)
+                            : null,
                       ),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(
+                      '#${order.id.substring(0, 8).toUpperCase()}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontFamily: 'monospace',
+                            letterSpacing: 1,
+                          ),
+                    ),
+                  ],
                 ),
                 OrderStatusBadge(status: order.status),
               ],

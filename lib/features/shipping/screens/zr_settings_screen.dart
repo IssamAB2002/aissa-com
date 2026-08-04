@@ -19,6 +19,7 @@ class _ZrSettingsScreenState extends ConsumerState<ZrSettingsScreen> {
   bool _saving = false;
   bool _syncingTerritories = false;
   bool _syncingHubs = false;
+  bool _syncingRates = false;
 
   @override
   void dispose() {
@@ -115,6 +116,40 @@ class _ZrSettingsScreenState extends ConsumerState<ZrSettingsScreen> {
     }
   }
 
+  Future<void> _syncDeliveryRates() async {
+    final secretKey = _secretKeyCtrl.text.trim();
+    final tenantId = _tenantIdCtrl.text.trim();
+    if (secretKey.isEmpty || tenantId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Enter and save credentials first.')),
+      );
+      return;
+    }
+    setState(() => _syncingRates = true);
+    try {
+      final result = await ref
+          .read(shippingReferenceServiceProvider)
+          .syncDeliveryRatesFromZr(secretKey, tenantId);
+      if (mounted) {
+        final message = result.skippedCodes.isEmpty
+            ? '${result.updated} wilayas priced.'
+            : '${result.updated} wilayas priced. No rate for codes: '
+                '${result.skippedCodes.join(', ')} — set manually if needed.';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sync failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _syncingRates = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<AsyncValue<ZrSettings>>(zrSettingsStreamProvider, (_, next) {
@@ -202,6 +237,17 @@ class _ZrSettingsScreenState extends ConsumerState<ZrSettingsScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.store_outlined),
             label: const Text('Sync Hubs'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _syncingRates ? null : _syncDeliveryRates,
+            icon: _syncingRates
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.payments_outlined),
+            label: const Text('Sync Delivery Prices'),
           ),
         ],
       ),

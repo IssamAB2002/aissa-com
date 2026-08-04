@@ -7,9 +7,9 @@ class Wilaya {
     required this.nameAr,
     required this.nameFr,
     this.zrTerritoryId,
-    this.shippingPriceHome = 700,
-    this.shippingPriceDesk = 450,
     this.isActive = true,
+    this.shippingPriceHome = 0.0,
+    this.shippingPriceDesk = 0.0,
   });
 
   final String id;
@@ -17,18 +17,18 @@ class Wilaya {
   final String nameAr;
   final String nameFr;
   final String? zrTerritoryId;
+  final bool isActive;
   final double shippingPriceHome;
   final double shippingPriceDesk;
-  final bool isActive;
 
   Map<String, dynamic> toMap() => {
         'code': code,
         'nameAr': nameAr,
         'nameFr': nameFr,
         'zrTerritoryId': zrTerritoryId,
+        'isActive': isActive,
         'shippingPriceHome': shippingPriceHome,
         'shippingPriceDesk': shippingPriceDesk,
-        'isActive': isActive,
       };
 
   factory Wilaya.fromDoc(DocumentSnapshot doc) {
@@ -39,11 +39,11 @@ class Wilaya {
       nameAr: m['nameAr'] as String? ?? '',
       nameFr: m['nameFr'] as String? ?? '',
       zrTerritoryId: m['zrTerritoryId'] as String?,
-      shippingPriceHome:
-          (m['shippingPriceHome'] as num? ?? 700).toDouble(),
-      shippingPriceDesk:
-          (m['shippingPriceDesk'] as num? ?? 450).toDouble(),
       isActive: m['isActive'] as bool? ?? true,
+      shippingPriceHome:
+          (m['shippingPriceHome'] as num? ?? 0.0).toDouble(),
+      shippingPriceDesk:
+          (m['shippingPriceDesk'] as num? ?? 0.0).toDouble(),
     );
   }
 }

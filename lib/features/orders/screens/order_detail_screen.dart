@@ -8,6 +8,7 @@ import '../../../core/widgets/app_confirm_dialog.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../shipping/providers/shipping_reference_provider.dart';
 import '../../shipping/services/zr_client.dart';
+import '../../shipping/models/wilaya.dart';
 import '../models/order.dart';
 import '../providers/orders_provider.dart';
 import '../services/orders_service.dart';
@@ -235,13 +236,22 @@ class _ItemsCard extends StatelessWidget {
             label: 'Products Subtotal',
             value: 'DZD ${order.itemsSubtotal.toStringAsFixed(2)}',
           ),
-          const SizedBox(height: 6),
-          _FinanceRow(
-            label: 'Delivery Fees',
-            value: order.deliveryPrice == 0
-                ? '—'
-                : '+ DZD ${order.deliveryPrice.toStringAsFixed(2)}',
-          ),
+          if (order.zrDeliveryFee > 0) ...[
+            const SizedBox(height: 6),
+            _FinanceRow(
+              label: 'ZR Delivery Fee',
+              value: '- DZD ${order.zrDeliveryFee.toStringAsFixed(2)}',
+              valueColor: AppColors.error,
+            ),
+          ],
+          if (order.fees > 0) ...[
+            const SizedBox(height: 6),
+            _FinanceRow(
+              label: 'Fees',
+              value: '+ DZD ${order.fees.toStringAsFixed(2)}',
+              valueColor: AppColors.success,
+            ),
+          ],
           const SizedBox(height: 6),
           _FinanceRow(
             label: 'Discount',
@@ -268,6 +278,14 @@ class _ItemsCard extends StatelessWidget {
               ),
             ],
           ),
+          if (order.zrDeliveryFee > 0 || order.fees > 0) ...[
+            const SizedBox(height: 6),
+            _FinanceRow(
+              label: 'Net Income (to Finance)',
+              value: 'DZD ${(order.total - order.zrDeliveryFee + order.fees).toStringAsFixed(2)}',
+              valueColor: AppColors.success,
+            ),
+          ],
         ],
       ),
     );
@@ -420,11 +438,24 @@ class _ZrExpressCardState extends ConsumerState<_ZrExpressCard> {
       final zrClient = ref.read(zrClientProvider);
       final result = await zrClient.postParcel(
           widget.order, settings.secretKey, settings.tenantId);
+      final wilayas = await ref.read(wilayasStreamProvider.future);
+      Wilaya? wilaya;
+      for (final w in wilayas) {
+        if (w.id == widget.order.wilayaId) {
+          wilaya = w;
+          break;
+        }
+      }
+      final zrDeliveryFee = widget.order.deliveryType ==
+              DeliveryType.homeDelivery
+          ? (wilaya?.shippingPriceHome ?? 0.0)
+          : (wilaya?.shippingPriceDesk ?? 0.0);
       await widget.service.markZrPushed(
         widget.order.id,
         zrParcelId: result.parcelId,
         zrTrackingNumber: result.trackingNumber,
         zrCustomerId: result.customerId,
+        zrDeliveryFee: zrDeliveryFee,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -807,14 +838,14 @@ class _EditOrderSheet extends StatefulWidget {
 }
 
 class _EditOrderSheetState extends State<_EditOrderSheet> {
-  late final _deliveryCtrl = TextEditingController(
-    text: widget.order.deliveryPrice > 0
-        ? widget.order.deliveryPrice.toStringAsFixed(2)
-        : '',
-  );
   late final _discountCtrl = TextEditingController(
     text: widget.order.discountAmount > 0
         ? widget.order.discountAmount.toStringAsFixed(2)
+        : '',
+  );
+  late final _feesCtrl = TextEditingController(
+    text: widget.order.fees > 0
+        ? widget.order.fees.toStringAsFixed(2)
         : '',
   );
   bool _saving = false;
@@ -822,34 +853,32 @@ class _EditOrderSheetState extends State<_EditOrderSheet> {
   @override
   void initState() {
     super.initState();
-    _deliveryCtrl.addListener(_onChanged);
     _discountCtrl.addListener(_onChanged);
+    _feesCtrl.addListener(_onChanged);
   }
 
   void _onChanged() => setState(() {});
 
   @override
   void dispose() {
-    _deliveryCtrl.dispose();
     _discountCtrl.dispose();
+    _feesCtrl.dispose();
     super.dispose();
   }
 
-  double get _deliveryPrice =>
-      double.tryParse(_deliveryCtrl.text.trim()) ?? 0.0;
   double get _discountAmount =>
       double.tryParse(_discountCtrl.text.trim()) ?? 0.0;
-  double get _newTotal =>
-      widget.order.itemsSubtotal + _deliveryPrice - _discountAmount;
+  double get _fees => double.tryParse(_feesCtrl.text.trim()) ?? 0.0;
+  double get _newTotal => widget.order.itemsSubtotal - _discountAmount;
 
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
       await widget.service.updateFinance(
         id: widget.order.id,
-        deliveryPrice: _deliveryPrice,
         discountAmount: _discountAmount,
         total: _newTotal,
+        fees: _fees,
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -886,37 +915,28 @@ class _EditOrderSheetState extends State<_EditOrderSheet> {
           Text('Edit Order', style: theme.textTheme.titleLarge),
           const SizedBox(height: 4),
           Text(
-            'Adjust delivery & discount for this order.',
+            'Adjust discount and fees for this order.',
             style: theme.textTheme.bodyMedium
                 ?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _deliveryCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Delivery Price (DZD)',
-                    prefixText: 'DZD ',
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: _discountCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Discount (DZD)',
-                    prefixText: 'DZD ',
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                ),
-              ),
-            ],
+          TextField(
+            controller: _discountCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Discount (DZD)',
+              prefixText: 'DZD ',
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _feesCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Fees (DZD)',
+              prefixText: 'DZD ',
+              helperText: 'Added to net profit, e.g. service or handling fee.',
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 16),
           Container(
@@ -932,19 +952,20 @@ class _EditOrderSheetState extends State<_EditOrderSheet> {
                   label: 'Products',
                   value: 'DZD ${widget.order.itemsSubtotal.toStringAsFixed(2)}',
                 ),
-                if (_deliveryPrice != 0) ...[
-                  const SizedBox(height: 4),
-                  _EditSummaryRow(
-                    label: 'Delivery',
-                    value: '+ DZD ${_deliveryPrice.toStringAsFixed(2)}',
-                  ),
-                ],
                 if (_discountAmount != 0) ...[
                   const SizedBox(height: 4),
                   _EditSummaryRow(
                     label: 'Discount',
                     value: '- DZD ${_discountAmount.toStringAsFixed(2)}',
                     valueColor: AppColors.error,
+                  ),
+                ],
+                if (_fees != 0) ...[
+                  const SizedBox(height: 4),
+                  _EditSummaryRow(
+                    label: 'Fees (added to net profit)',
+                    value: '+ DZD ${_fees.toStringAsFixed(2)}',
+                    valueColor: AppColors.success,
                   ),
                 ],
                 const Padding(

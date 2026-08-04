@@ -64,7 +64,6 @@ class Order {
     required this.items,
     required this.status,
     required this.total,
-    this.deliveryPrice = 0.0,
     this.discountAmount = 0.0,
     this.deliveryType = DeliveryType.homeDelivery,
     this.notes,
@@ -88,6 +87,8 @@ class Order {
     this.zrParcelId,
     this.zrTrackingNumber,
     this.zrPostedAt,
+    this.zrDeliveryFee = 0.0,
+    this.fees = 0.0,
   });
 
   final String id;
@@ -98,7 +99,6 @@ class Order {
   final List<OrderItem> items;
   final OrderStatus status;
   final double total;
-  final double deliveryPrice;
   final double discountAmount;
   final DeliveryType deliveryType;
   final String? notes;
@@ -124,13 +124,16 @@ class Order {
   final String? zrParcelId;
   final String? zrTrackingNumber;
   final DateTime? zrPostedAt;
+  final double zrDeliveryFee;
+  final double fees;
 
   bool get hasZrShippingData => deliveryType == DeliveryType.homeDelivery
       ? (wilayaZrTerritoryId != null && baladiaZrTerritoryId != null)
       : (wilayaZrTerritoryId != null && hubZrId != null);
 
   double get itemsSubtotal => items.fold(0.0, (s, i) => s + i.subtotal);
-  double get netProfit => items.fold(0.0, (s, i) => s + i.profit);
+  double get netProfit =>
+      items.fold(0.0, (s, i) => s + i.profit) - zrDeliveryFee + fees;
 
   Map<String, dynamic> toMap() => {
         'customerName': customerName,
@@ -140,7 +143,6 @@ class Order {
         'items': items.map((e) => e.toMap()).toList(),
         'status': status.name,
         'total': total,
-        'deliveryPrice': deliveryPrice,
         'discountAmount': discountAmount,
         'deliveryType': deliveryType.name,
         'notes': notes,
@@ -166,6 +168,8 @@ class Order {
         'zrTrackingNumber': zrTrackingNumber,
         'zrPostedAt':
             zrPostedAt != null ? Timestamp.fromDate(zrPostedAt!) : null,
+        'zrDeliveryFee': zrDeliveryFee,
+        'fees': fees,
       };
 
   factory Order.fromDoc(DocumentSnapshot doc) {
@@ -184,7 +188,6 @@ class Order {
         orElse: () => OrderStatus.pending,
       ),
       total: (m['total'] as num).toDouble(),
-      deliveryPrice: (m['deliveryPrice'] as num? ?? 0.0).toDouble(),
       discountAmount: (m['discountAmount'] as num? ?? 0.0).toDouble(),
       deliveryType: DeliveryType.values.firstWhere(
         (t) => t.name == m['deliveryType'],
@@ -214,6 +217,8 @@ class Order {
       zrParcelId: m['zrParcelId'] as String?,
       zrTrackingNumber: m['zrTrackingNumber'] as String?,
       zrPostedAt: (m['zrPostedAt'] as Timestamp?)?.toDate(),
+      zrDeliveryFee: (m['zrDeliveryFee'] as num? ?? 0.0).toDouble(),
+      fees: (m['fees'] as num? ?? 0.0).toDouble(),
     );
   }
 
@@ -221,9 +226,10 @@ class Order {
     OrderStatus? status,
     String? notes,
     DateTime? updatedAt,
-    double? deliveryPrice,
     double? discountAmount,
     double? total,
+    double? zrDeliveryFee,
+    double? fees,
   }) => Order(
         id: id,
         customerName: customerName,
@@ -233,7 +239,6 @@ class Order {
         items: items,
         status: status ?? this.status,
         total: total ?? this.total,
-        deliveryPrice: deliveryPrice ?? this.deliveryPrice,
         discountAmount: discountAmount ?? this.discountAmount,
         deliveryType: deliveryType,
         notes: notes ?? this.notes,
@@ -243,5 +248,7 @@ class Order {
         stockApplied: stockApplied,
         creatorId: creatorId,
         creatorName: creatorName,
+        zrDeliveryFee: zrDeliveryFee ?? this.zrDeliveryFee,
+        fees: fees ?? this.fees,
       );
 }

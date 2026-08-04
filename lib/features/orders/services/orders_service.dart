@@ -110,13 +110,13 @@ class OrdersService {
 
   Future<void> updateFinance({
     required String id,
-    required double deliveryPrice,
     required double discountAmount,
     required double total,
+    double? fees,
   }) => _col.doc(id).update({
-        'deliveryPrice': deliveryPrice,
         'discountAmount': discountAmount,
         'total': total,
+        if (fees != null) 'fees': fees,
         'updatedAt': Timestamp.now(),
       });
 
@@ -159,7 +159,7 @@ class OrdersService {
       _txCol.doc(txId),
       {
         'type': 'income',
-        'amount': order.total,
+        'amount': order.total - order.zrDeliveryFee + order.fees,
         'category': 'Sales',
         'description': 'Order #$shortId – ${order.customerName}',
         'date': Timestamp.now(),
@@ -198,6 +198,7 @@ class OrdersService {
     required String zrParcelId,
     required String zrTrackingNumber,
     required String zrCustomerId,
+    required double zrDeliveryFee,
   }) =>
       _col.doc(id).update({
         'zrSubmitted': true,
@@ -205,6 +206,7 @@ class OrdersService {
         'zrTrackingNumber': zrTrackingNumber,
         'zrCustomerId': zrCustomerId,
         'zrPostedAt': Timestamp.now(),
+        'zrDeliveryFee': zrDeliveryFee,
       });
 
   Future<void> clearZr(String id) => _col.doc(id).update({
@@ -212,5 +214,6 @@ class OrdersService {
         'zrParcelId': null,
         'zrTrackingNumber': null,
         'zrPostedAt': null,
+        'zrDeliveryFee': 0.0,
       });
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../orders/models/order.dart';
@@ -49,6 +50,9 @@ class ZrClient {
       if (body != null) 'Content-Type': 'application/json',
     };
     final uri = Uri.parse(url);
+    if (body != null) {
+      debugPrint('ZR $method $url body: ${jsonEncode(body)}');
+    }
     final http.Response response;
     switch (method) {
       case 'POST':
@@ -223,7 +227,7 @@ class ZrClient {
       },
       'deliveryAddress': deliveryAddress,
       'deliveryType': isHome ? 'home' : 'pickup-point',
-      'amount': order.total.round(),
+      'amount': (order.total + order.fees).round(),
       'description':
           description.length > 500 ? description.substring(0, 500) : description,
       'orderedProducts': orderedProducts,

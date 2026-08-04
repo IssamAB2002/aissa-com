@@ -11,6 +11,8 @@ import '../models/zr_settings.dart';
 const _territoriesSearchUrl =
     'https://api.zrexpress.app/api/v1.0/territories/search';
 const _hubsSearchUrl = 'https://api.zrexpress.app/api/v1/hubs/search';
+const _deliveryRatesUrl =
+    'https://api.zrexpress.app/api/v1/delivery-pricing/rates';
 
 class ShippingReferenceService {
   ShippingReferenceService(this._db);
@@ -192,5 +194,95 @@ class ShippingReferenceService {
 
     await _commitInChunks(writes);
     return items.length;
+  }
+
+  /// Syncs per-wilaya home/desk delivery prices from ZR Express's rates
+  /// endpoint. Wilaya-level entries map by `toTerritoryCode` -> `Wilaya.code`.
+  /// Algiers (no wilaya-level entry, priced by commune only) is recovered by
+  /// cross-referencing the `baladias` collection's `wilayaId` to attribute a
+  /// commune's price to its parent wilaya.
+  Future<({int updated, List<int> skippedCodes})> syncDeliveryRatesFromZr(
+    String secretKey,
+    String tenantId,
+  ) async {
+    final response = await http.get(
+      Uri.parse(_deliveryRatesUrl),
+      headers: _headers(secretKey, tenantId),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+          'ZR request failed (${response.statusCode}): ${response.body}');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final rates = (data['rates'] as List? ?? []).cast<Map<String, dynamic>>();
+
+    final wilayaSnap = await _wilayasCol.get();
+    final codeToDocId = <int, String>{
+      for (final d in wilayaSnap.docs)
+        ((d.data() as Map)['code'] as num).toInt(): d.id,
+    };
+    final docIdToCode = {for (final e in codeToDocId.entries) e.value: e.key};
+
+    final baladiaSnap = await _baladiasCol.get();
+    final communeIdToWilayaDocId = <String, String>{
+      for (final d in baladiaSnap.docs)
+        d.id: (d.data() as Map)['wilayaId'] as String? ?? '',
+    };
+
+    double? priceFor(Map<String, dynamic> rate, String type) {
+      final prices = (rate['deliveryPrices'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+      final match = prices.firstWhere(
+        (p) => p['deliveryType'] == type,
+        orElse: () => const {},
+      );
+      final p = match['price'];
+      return p is num ? p.toDouble() : null;
+    }
+
+    final priceByCode = <int, ({double home, double desk})>{};
+
+    for (final r in rates) {
+      if (r['toTerritoryLevel'] != 'wilaya') continue;
+      final code = r['toTerritoryCode'];
+      if (code is! num) continue;
+      priceByCode[code.toInt()] = (
+        home: priceFor(r, 'home') ?? 0.0,
+        desk: priceFor(r, 'pickup-point') ?? 0.0,
+      );
+    }
+
+    // Fallback for wilayas only priced at commune level (e.g. Algiers).
+    for (final r in rates) {
+      if (r['toTerritoryLevel'] != 'commune') continue;
+      final wilayaDocId = communeIdToWilayaDocId[r['toTerritoryId']];
+      final code = docIdToCode[wilayaDocId];
+      if (code == null || priceByCode.containsKey(code)) continue;
+      priceByCode[code] = (
+        home: priceFor(r, 'home') ?? 0.0,
+        desk: priceFor(r, 'pickup-point') ?? 0.0,
+      );
+    }
+
+    final writes = <void Function(WriteBatch batch)>[];
+    for (final entry in priceByCode.entries) {
+      final docId = codeToDocId[entry.key];
+      if (docId == null) continue;
+      writes.add((batch) => batch.set(
+            _wilayasCol.doc(docId),
+            {
+              'shippingPriceHome': entry.value.home,
+              'shippingPriceDesk': entry.value.desk,
+            },
+            SetOptions(merge: true),
+          ));
+    }
+    await _commitInChunks(writes);
+
+    final skippedCodes = codeToDocId.keys
+        .where((c) => !priceByCode.containsKey(c))
+        .toList()
+      ..sort();
+    return (updated: writes.length, skippedCodes: skippedCodes);
   }
 }

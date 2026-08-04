@@ -31,6 +31,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
   final _qtyCtrl = TextEditingController(text: '1');
   final _priceCtrl = TextEditingController();
   final _discountCtrl = TextEditingController();
+  final _feesCtrl = TextEditingController();
   final List<_CartItem> _cart = [];
   Product? _selectedProduct;
   DeliveryType _deliveryType = DeliveryType.homeDelivery;
@@ -45,6 +46,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     super.initState();
     _priceCtrl.addListener(_onPriceChanged);
     _discountCtrl.addListener(_onExtraFieldChanged);
+    _feesCtrl.addListener(_onExtraFieldChanged);
   }
 
   void _onPriceChanged() => setState(() {});
@@ -61,12 +63,15 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     _priceCtrl.dispose();
     _discountCtrl.removeListener(_onExtraFieldChanged);
     _discountCtrl.dispose();
+    _feesCtrl.removeListener(_onExtraFieldChanged);
+    _feesCtrl.dispose();
     super.dispose();
   }
 
   double get _subtotal => _cart.fold(0.0, (sum, item) => sum + item.subtotal);
   double get _discountAmount =>
       double.tryParse(_discountCtrl.text.trim()) ?? 0.0;
+  double get _fees => double.tryParse(_feesCtrl.text.trim()) ?? 0.0;
   double get _total => _subtotal - _discountAmount;
 
   void _onProductSelected(Product? p) {
@@ -219,6 +224,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
         status: OrderStatus.pending,
         total: _total,
         discountAmount: _discountAmount,
+        fees: _fees,
         deliveryType: _deliveryType,
         notes: _notesCtrl.text.trim().isEmpty
             ? null
@@ -447,6 +453,18 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
               ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _feesCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Fees (DZD)',
+                  prefixText: 'DZD ',
+                  helperText:
+                      'Charged to the client, added to net profit.',
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+              ),
             ],
             if (_cart.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -468,6 +486,12 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                           value: _discountAmount,
                           prefix: '-',
                           valueColor: AppColors.error),
+                    if (_fees > 0)
+                      _SummaryRow(
+                          label: 'Fees',
+                          value: _fees,
+                          prefix: '+',
+                          valueColor: AppColors.success),
                     const Divider(height: 18),
                     _SummaryRow(
                         label: 'Total',
