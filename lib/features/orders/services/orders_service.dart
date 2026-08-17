@@ -179,7 +179,7 @@ class OrdersService {
         final empData = empSnap.docs.first.data();
         final pct = (empData['benefitPercentage'] as num? ?? 0).toDouble();
         if (pct > 0) {
-          final reward = (pct / 100) * order.netProfit;
+          final reward = (pct / 100) * order.rewardBasis;
           batch.update(empSnap.docs.first.reference,
               {'amountOwed': FieldValue.increment(reward)});
           rewardCredited = true;

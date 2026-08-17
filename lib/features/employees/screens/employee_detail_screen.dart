@@ -36,7 +36,7 @@ import '../providers/employees_provider.dart';
   }).toList();
   return (
     count: matched.length,
-    total: matched.fold(0.0, (s, o) => s + o.netProfit),
+    total: matched.fold(0.0, (s, o) => s + o.rewardBasis),
   );
 }
 
@@ -156,7 +156,7 @@ class EmployeeDetailScreen extends ConsumerWidget {
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      'Based on net profit of ${settings.benefitPeriod} confirmed orders.',
+                      'Based on net income of ${settings.benefitPeriod} confirmed orders.',
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
@@ -179,7 +179,7 @@ class EmployeeDetailScreen extends ConsumerWidget {
                           color: AppColors.success,
                         ),
                         _RewardStat(
-                          label: 'Net Profit',
+                          label: 'Net Income',
                           value: 'DZD ${stats.total.toStringAsFixed(0)}',
                           color: AppColors.secondary,
                         ),
@@ -436,7 +436,7 @@ class _OrderRow extends StatelessWidget {
             ),
           ),
           Text(
-            'DZD ${order.total.toStringAsFixed(0)}',
+            'DZD ${order.rewardBasis.toStringAsFixed(0)}',
             style: Theme.of(context)
                 .textTheme
                 .titleSmall

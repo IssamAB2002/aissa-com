@@ -13,7 +13,7 @@ import '../models/employee.dart';
 import '../providers/employees_provider.dart';
 import '../widgets/employee_card.dart';
 
-/// Returns confirmed-order count and net profit total for [uid] within [period].
+/// Returns confirmed-order count and net-income sum for [uid] within [period].
 ({int count, double total}) _employeeStats(
     List<Order> orders, String? uid, String period) {
   if (uid == null) return (count: 0, total: 0.0);
@@ -38,7 +38,7 @@ import '../widgets/employee_card.dart';
   }).toList();
   return (
     count: matched.length,
-    total: matched.fold(0.0, (s, o) => s + o.netProfit),
+    total: matched.fold(0.0, (s, o) => s + o.rewardBasis),
   );
 }
 

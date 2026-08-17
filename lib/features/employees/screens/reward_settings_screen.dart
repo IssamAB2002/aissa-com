@@ -11,13 +11,13 @@ import '../providers/employees_provider.dart';
 
 // ─── Calculation helpers ─────────────────────────────────────────────────────
 
-double _calcTotalNetProfit(List<Order> orders, String period) {
+double _calcTotalOrderAmount(List<Order> orders, String period) {
   final now = DateTime.now();
   return orders.where((o) {
     if (!o.paymentConfirmed) return false;
     final d = o.createdAt;
     return _inPeriod(d, now, period);
-  }).fold<double>(0.0, (s, o) => s + o.netProfit);
+  }).fold<double>(0.0, (s, o) => s + o.rewardBasis);
 }
 
 ({int count, double total}) _employeeStats(
@@ -32,7 +32,7 @@ double _calcTotalNetProfit(List<Order> orders, String period) {
       .toList();
   return (
     count: matched.length,
-    total: matched.fold(0.0, (s, o) => s + o.netProfit),
+    total: matched.fold(0.0, (s, o) => s + o.rewardBasis),
   );
 }
 
@@ -88,7 +88,7 @@ class _RewardSettingsScreenState extends ConsumerState<RewardSettingsScreen> {
         _selectedId == null ? null : employees.where((e) => e.id == _selectedId).firstOrNull;
     final selStats =
         selectedEmp != null ? _employeeStats(orders, selectedEmp.uid, _period) : null;
-    final totalRevenue = _calcTotalNetProfit(orders, _period);
+    final totalRevenue = _calcTotalOrderAmount(orders, _period);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Reward Settings')),
@@ -188,7 +188,7 @@ class _RewardSettingsScreenState extends ConsumerState<RewardSettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Reward = benefit % × employee\'s net profit from confirmed orders.',
+                    'Reward = benefit % × employee\'s net income from confirmed orders (ZR fee deducted only when shipped via ZR).',
                     style: Theme.of(context)
                         .textTheme
                         .bodySmall
@@ -294,7 +294,7 @@ class _GlobalRevenueCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${period[0].toUpperCase()}${period.substring(1)} Total Net Profit',
+                  '${period[0].toUpperCase()}${period.substring(1)} Total Net Income',
                   style: const TextStyle(
                       fontSize: 12, color: AppColors.textSecondary),
                 ),
@@ -428,7 +428,7 @@ class _EmployeeStatsCard extends StatelessWidget {
               Expanded(
                 child: _MiniStat(
                   icon: Icons.payments_outlined,
-                  label: 'Net Profit',
+                  label: 'Net Income',
                   value:
                       'DZD ${NumberFormat('#,##0').format(stats.total)}',
                 ),

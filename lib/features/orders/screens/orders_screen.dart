@@ -54,6 +54,67 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     await Future.delayed(const Duration(milliseconds: 600));
   }
 
+  Future<bool> _confirmDelete(Order order) async {
+    final ok = await AppConfirmDialog.show(
+      context,
+      icon: Icons.delete_outline,
+      iconColor: AppColors.error,
+      title: 'Delete Order',
+      message: 'This action cannot be undone.',
+      confirmLabel: 'Delete',
+    );
+    if (ok != true) return false;
+
+    try {
+      await ref.read(ordersServiceProvider).deleteOrder(order.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete order: $e')),
+        );
+      }
+    }
+    // Always snap back — the card leaves the list naturally once the
+    // orders stream re-emits without the deleted order, rather than
+    // playing Dismissible's own slide-away animation.
+    return false;
+  }
+
+  Future<bool> _confirmStatusToggle(Order order) async {
+    final newStatus = order.status == OrderStatus.pending
+        ? OrderStatus.delivered
+        : OrderStatus.pending;
+
+    final ok = await AppConfirmDialog.show(
+      context,
+      icon: newStatus == OrderStatus.delivered
+          ? Icons.check_circle_outline
+          : Icons.hourglass_empty,
+      iconColor: newStatus == OrderStatus.delivered
+          ? AppColors.statusDelivered
+          : AppColors.statusPending,
+      confirmColor: newStatus == OrderStatus.delivered
+          ? AppColors.statusDelivered
+          : AppColors.statusPending,
+      title: 'Mark as ${newStatus.label}',
+      message:
+          "Change this order's status from ${order.status.label} to ${newStatus.label}?",
+      confirmLabel: 'Confirm',
+    );
+    if (ok != true) return false;
+
+    try {
+      await ref.read(ordersServiceProvider).updateStatus(order, newStatus);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update status: $e')),
+        );
+      }
+    }
+    return false;
+  }
+
   Future<void> _pickCustomRange() async {
     final range = await showDateRangePicker(
       context: context,
@@ -249,9 +310,37 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                           }),
                         );
                       }
-                      return OrderCard(
-                        order: order,
-                        onTap: () => context.push('/orders/${order.id}'),
+                      return Dismissible(
+                        key: ValueKey(order.id),
+                        direction: order.status == OrderStatus.cancelled
+                            ? DismissDirection.startToEnd
+                            : DismissDirection.horizontal,
+                        background: const _SwipeBackground(
+                          alignment: Alignment.centerLeft,
+                          color: AppColors.error,
+                          icon: Icons.delete_outline,
+                          label: 'Delete',
+                        ),
+                        secondaryBackground: _SwipeBackground(
+                          alignment: Alignment.centerRight,
+                          color: order.status == OrderStatus.pending
+                              ? AppColors.statusDelivered
+                              : AppColors.statusPending,
+                          icon: order.status == OrderStatus.pending
+                              ? Icons.check_circle_outline
+                              : Icons.hourglass_empty,
+                          label: order.status == OrderStatus.pending
+                              ? 'Mark Delivered'
+                              : 'Mark Pending',
+                        ),
+                        confirmDismiss: (direction) =>
+                            direction == DismissDirection.startToEnd
+                                ? _confirmDelete(order)
+                                : _confirmStatusToggle(order),
+                        child: OrderCard(
+                          order: order,
+                          onTap: () => context.push('/orders/${order.id}'),
+                        ),
                       );
                     },
                   ),
@@ -459,6 +548,59 @@ class _DateFilterChips extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SwipeBackground extends StatelessWidget {
+  const _SwipeBackground({
+    required this.alignment,
+    required this.color,
+    required this.icon,
+    required this.label,
+  });
+
+  final Alignment alignment;
+  final Color color;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      alignment: alignment,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: alignment == Alignment.centerLeft
+            ? [
+                Icon(icon, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ]
+            : [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(icon, color: Colors.white),
+              ],
       ),
     );
   }

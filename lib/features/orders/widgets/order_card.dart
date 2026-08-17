@@ -101,7 +101,8 @@ class OrderCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 Text(
-                  NumberFormat.currency(symbol: 'DZD ').format(order.total),
+                  NumberFormat.currency(symbol: 'DZD ')
+                      .format(order.rewardBasis),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AppColors.primary,
                       ),

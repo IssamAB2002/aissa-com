@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../employees/models/employee.dart';
+import '../../employees/providers/employees_provider.dart';
 import '../../products/models/product.dart';
 import '../../products/providers/products_provider.dart';
 import '../../shipping/models/baladia.dart';
@@ -38,6 +40,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
   Wilaya? _selectedWilaya;
   Baladia? _selectedBaladia;
   Hub? _selectedHub;
+  Employee? _selectedEmployee;
   bool _saving = false;
   bool _triedSubmit = false;
 
@@ -201,6 +204,11 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     setState(() => _saving = true);
     try {
       final appUser = ref.read(currentUserProvider).valueOrNull;
+      final selectedEmployee = _selectedEmployee;
+      final creatorId =
+          selectedEmployee != null ? selectedEmployee.uid : appUser?.uid;
+      final creatorName =
+          selectedEmployee != null ? selectedEmployee.name : appUser?.displayName;
       final wilaya = _selectedWilaya!;
       final order = Order(
         id: const Uuid().v4(),
@@ -230,8 +238,8 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
             ? null
             : _notesCtrl.text.trim(),
         createdAt: DateTime.now(),
-        creatorId: appUser?.uid,
-        creatorName: appUser?.displayName,
+        creatorId: creatorId,
+        creatorName: creatorName,
         wilayaId: wilaya.id,
         wilayaName: wilaya.nameFr,
         wilayaZrTerritoryId: wilaya.zrTerritoryId,
@@ -267,6 +275,16 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (isAdmin) ...[
+              Text('Order Creator',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              _EmployeeDropdown(
+                selected: _selectedEmployee,
+                onChanged: (e) => setState(() => _selectedEmployee = e),
+              ),
+              const SizedBox(height: 24),
+            ],
             Text('Customer Info',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
@@ -304,11 +322,9 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _addressCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Address (street)'),
+                decoration: const InputDecoration(
+                    labelText: 'Address (street, optional)'),
                 textCapitalization: TextCapitalization.sentences,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
             ] else ...[
               const SizedBox(height: 12),
@@ -700,6 +716,46 @@ class _ProductSection extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _EmployeeDropdown extends ConsumerWidget {
+  const _EmployeeDropdown({
+    required this.selected,
+    required this.onChanged,
+  });
+  final Employee? selected;
+  final ValueChanged<Employee?> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final employeesAsync = ref.watch(employeesStreamProvider);
+    return employeesAsync.when(
+      loading: () => const LinearProgressIndicator(),
+      error: (e, _) => Text('Error loading employees: $e'),
+      data: (employees) => DropdownButtonFormField<Employee?>(
+        initialValue: selected != null &&
+                employees.any((e) => e.id == selected!.id)
+            ? selected
+            : null,
+        decoration: const InputDecoration(
+          labelText: 'Created By',
+          helperText: 'Leave empty to create the order as yourself',
+        ),
+        isExpanded: true,
+        items: [
+          const DropdownMenuItem<Employee?>(
+            value: null,
+            child: Text('Myself (Admin)'),
+          ),
+          ...employees.map((e) => DropdownMenuItem<Employee?>(
+                value: e,
+                child: Text(e.name),
+              )),
+        ],
+        onChanged: onChanged,
       ),
     );
   }

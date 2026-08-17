@@ -135,6 +135,14 @@ class Order {
   double get netProfit =>
       items.fold(0.0, (s, i) => s + i.profit) - zrDeliveryFee + fees;
 
+  /// Net income used as the basis for employee reward calculations.
+  /// `total` already has the discount netted out. The ZR delivery fee is
+  /// only subtracted when the order was actually pushed to ZR Express —
+  /// otherwise there's no ZR fee to account for, so `fees` is just added
+  /// on top.
+  double get rewardBasis =>
+      zrSubmitted ? total - zrDeliveryFee + fees : total + fees;
+
   Map<String, dynamic> toMap() => {
         'customerName': customerName,
         'customerPhone': customerPhone,
