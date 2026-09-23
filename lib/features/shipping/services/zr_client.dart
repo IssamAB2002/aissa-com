@@ -89,13 +89,13 @@ class ZrClient {
         'This order has no ZR wilaya territory id — sync territories in ZR Settings first.',
       );
     }
-    if (_isHome(order)) {
-      if (order.baladiaZrTerritoryId == null) {
-        throw ZrServiceException(
-          'Home delivery requires a baladia with a ZR territory id.',
-        );
-      }
-    } else if (order.hubZrId == null) {
+    if (order.baladiaZrTerritoryId == null) {
+      throw ZrServiceException(
+        'This order has no baladia with a ZR territory id — ZR requires one '
+        'on the customer record even for pickup-point orders.',
+      );
+    }
+    if (!_isHome(order) && order.hubZrId == null) {
       throw ZrServiceException(
         'Pickup-point delivery requires a selected ZR hub.',
       );
@@ -109,18 +109,16 @@ class ZrClient {
     final address = <String, dynamic>{
       'city': order.wilayaName,
       'cityTerritoryId': order.wilayaZrTerritoryId,
+      'district': order.baladiaName,
+      'districtTerritoryId': order.baladiaZrTerritoryId,
       'country': 'algeria',
       'isPrimary': true,
     };
 
     if (isHome) {
       if (order.address != null) address['street'] = order.address;
-      address['district'] = order.baladiaName;
-      address['districtTerritoryId'] = order.baladiaZrTerritoryId;
     } else {
       final hub = await _fetchHub(order.hubId!);
-      address['district'] =
-          (hub != null && hub.district.isNotEmpty) ? hub.district : order.hubName;
       if (hub != null && hub.street.isNotEmpty) address['street'] = hub.street;
     }
 

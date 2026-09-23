@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.aissacom" "\0"
-            VALUE "FileDescription", "Aissa Com" "\0"
+            VALUE "FileDescription", "Hamid Equipement" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "aissa_com" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.aissacom. All rights reserved." "\0"
             VALUE "OriginalFilename", "aissa_com.exe" "\0"
-            VALUE "ProductName", "Aissa Com" "\0"
+            VALUE "ProductName", "Hamid Equipement" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

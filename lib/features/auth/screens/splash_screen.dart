@@ -16,7 +16,7 @@ class SplashScreen extends StatelessWidget {
             CircularProgressIndicator(color: AppColors.primary),
             SizedBox(height: 20),
             Text(
-              'Aissa Com',
+              'Hamid Equipement',
               style: TextStyle(
                 color: AppColors.primary,
                 fontSize: 22,

@@ -20,8 +20,7 @@ class CreateOrderScreen extends ConsumerStatefulWidget {
   const CreateOrderScreen({super.key});
 
   @override
-  ConsumerState<CreateOrderScreen> createState() =>
-      _CreateOrderScreenState();
+  ConsumerState<CreateOrderScreen> createState() => _CreateOrderScreenState();
 }
 
 class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
@@ -76,6 +75,53 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       double.tryParse(_discountCtrl.text.trim()) ?? 0.0;
   double get _fees => double.tryParse(_feesCtrl.text.trim()) ?? 0.0;
   double get _total => _subtotal - _discountAmount;
+
+  bool get _hasUnsavedChanges =>
+      _nameCtrl.text.trim().isNotEmpty ||
+      _phoneCtrl.text.trim().isNotEmpty ||
+      _addressCtrl.text.trim().isNotEmpty ||
+      _notesCtrl.text.trim().isNotEmpty ||
+      _discountCtrl.text.trim().isNotEmpty ||
+      _feesCtrl.text.trim().isNotEmpty ||
+      _cart.isNotEmpty ||
+      _selectedWilaya != null ||
+      _selectedBaladia != null ||
+      _selectedHub != null ||
+      _selectedEmployee != null;
+
+  Future<bool> _confirmDiscard() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_rounded,
+            color: AppColors.warning, size: 36),
+        title: const Text('Harjah Aissa !'),
+        content: const Text(
+          'You have unsaved order details. If you leave now, they will be lost.',
+        ),
+        actions: [
+          ElevatedButton(
+            style: OutlinedButton.styleFrom(
+              /* backgroundColor: Colors.transparent, */
+              /* foregroundColor: Colors.black, */
+            ),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep Editing'),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
 
   void _onProductSelected(Product? p) {
     setState(() {
@@ -143,7 +189,8 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     setState(() {
       final idx = _cart.indexWhere((i) => i.product.id == product.id);
       if (idx >= 0) {
-        _cart[idx] = _cart[idx].copyWith(qty: _cart[idx].qty + qty, unitPrice: price);
+        _cart[idx] =
+            _cart[idx].copyWith(qty: _cart[idx].qty + qty, unitPrice: price);
       } else {
         _cart.add(_CartItem(product: product, qty: qty, unitPrice: price));
       }
@@ -168,7 +215,6 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
   void _onDeliveryTypeChanged(DeliveryType type) {
     setState(() {
       _deliveryType = type;
-      _selectedBaladia = null;
       _selectedHub = null;
     });
   }
@@ -188,8 +234,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       );
       return;
     }
-    if (_deliveryType == DeliveryType.homeDelivery &&
-        _selectedBaladia == null) {
+    if (_selectedBaladia == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a baladia.')),
       );
@@ -207,18 +252,17 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       final selectedEmployee = _selectedEmployee;
       final creatorId =
           selectedEmployee != null ? selectedEmployee.uid : appUser?.uid;
-      final creatorName =
-          selectedEmployee != null ? selectedEmployee.name : appUser?.displayName;
+      final creatorName = selectedEmployee != null
+          ? selectedEmployee.name
+          : appUser?.displayName;
       final wilaya = _selectedWilaya!;
       final order = Order(
         id: const Uuid().v4(),
         customerName: _nameCtrl.text.trim(),
-        customerPhone: _phoneCtrl.text.trim().isEmpty
-            ? null
-            : _phoneCtrl.text.trim(),
-        address: _addressCtrl.text.trim().isEmpty
-            ? null
-            : _addressCtrl.text.trim(),
+        customerPhone:
+            _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+        address:
+            _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
         city: wilaya.nameFr,
         items: _cart
             .map((i) => OrderItem(
@@ -234,9 +278,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
         discountAmount: _discountAmount,
         fees: _fees,
         deliveryType: _deliveryType,
-        notes: _notesCtrl.text.trim().isEmpty
-            ? null
-            : _notesCtrl.text.trim(),
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         createdAt: DateTime.now(),
         creatorId: creatorId,
         creatorName: creatorName,
@@ -268,50 +310,57 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     final isAdmin =
         ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('New Order')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (isAdmin) ...[
-              Text('Order Creator',
+    return PopScope(
+      canPop: !_hasUnsavedChanges,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldDiscard = await _confirmDiscard();
+        if (!context.mounted) return;
+        if (shouldDiscard) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('New Order')),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (isAdmin) ...[
+                Text('Order Creator',
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 12),
+                _EmployeeDropdown(
+                  selected: _selectedEmployee,
+                  onChanged: (e) => setState(() => _selectedEmployee = e),
+                ),
+                const SizedBox(height: 24),
+              ],
+              Text('Customer Info',
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
-              _EmployeeDropdown(
-                selected: _selectedEmployee,
-                onChanged: (e) => setState(() => _selectedEmployee = e),
+              TextFormField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(labelText: 'Customer Name *'),
+                textCapitalization: TextCapitalization.words,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
-              const SizedBox(height: 24),
-            ],
-            Text('Customer Info',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _nameCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Customer Name *'),
-              textCapitalization: TextCapitalization.words,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _phoneCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Phone'),
-              keyboardType: TextInputType.phone,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 12),
-            _WilayaDropdown(
-              selected: _selectedWilaya,
-              onChanged: _onWilayaChanged,
-              showError: _triedSubmit && _selectedWilaya == null,
-            ),
-            if (_deliveryType == DeliveryType.homeDelivery) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _phoneCtrl,
+                decoration: const InputDecoration(labelText: 'Phone'),
+                keyboardType: TextInputType.phone,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              _WilayaDropdown(
+                selected: _selectedWilaya,
+                onChanged: _onWilayaChanged,
+                showError: _triedSubmit && _selectedWilaya == null,
+              ),
               const SizedBox(height: 12),
               _BaladiaDropdown(
                 wilayaId: _selectedWilaya?.id,
@@ -319,224 +368,217 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                 onChanged: (b) => setState(() => _selectedBaladia = b),
                 showError: _triedSubmit && _selectedBaladia == null,
               ),
+              if (_deliveryType == DeliveryType.homeDelivery) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _addressCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Address (street, optional)'),
+                  textCapitalization: TextCapitalization.sentences,
+                ),
+              ] else ...[
+                const SizedBox(height: 12),
+                _HubDropdown(
+                  wilayaId: _selectedWilaya?.id,
+                  selected: _selectedHub,
+                  onChanged: (h) => setState(() => _selectedHub = h),
+                  showError: _triedSubmit && _selectedHub == null,
+                ),
+              ],
+              const SizedBox(height: 24),
+              Text('Add Products',
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _addressCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Address (street, optional)'),
-                textCapitalization: TextCapitalization.sentences,
-              ),
-            ] else ...[
-              const SizedBox(height: 12),
-              _HubDropdown(
-                wilayaId: _selectedWilaya?.id,
-                selected: _selectedHub,
-                onChanged: (h) => setState(() => _selectedHub = h),
-                showError: _triedSubmit && _selectedHub == null,
-              ),
-            ],
-            const SizedBox(height: 24),
-            Text('Add Products',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            productsAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Text('Error loading products: $e'),
-              data: (products) {
-                if (products.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 32, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.cardBorder),
-                    ),
-                    child: Column(
-                      children: [
-                        const Icon(Icons.inventory_2_outlined,
-                            size: 48, color: AppColors.textSecondary),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'No products in your catalog yet.',
-                          style:
-                              TextStyle(color: AppColors.textSecondary),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 16),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: AppColors.surface,
-                              shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.vertical(
-                                    top: Radius.circular(20)),
-                              ),
-                              builder: (_) => _QuickCreateProductSheet(
-                                onCreated: _onProductSelected,
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.add),
-                          label: const Text('Create New Product'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                return _ProductSection(
-                  products: products,
-                  selectedProduct: _selectedProduct,
-                  cart: _cart,
-                  qtyCtrl: _qtyCtrl,
-                  priceCtrl: _priceCtrl,
-                  onProductSelected: _onProductSelected,
-                  onAdd: _addToCart,
-                  onRemove: _removeFromCart,
-                  subtotal: _subtotal,
-                  isAdmin: isAdmin,
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Text(isAdmin ? 'Delivery & Discount' : 'Delivery',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Row(
-              children: DeliveryType.values.map((type) {
-                final selected = _deliveryType == type;
-                final isFirst = type == DeliveryType.values.first;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => _onDeliveryTypeChanged(type),
-                    child: Container(
-                      margin: EdgeInsets.only(right: isFirst ? 8 : 0),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+              productsAsync.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Text('Error loading products: $e'),
+                data: (products) {
+                  if (products.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 32, horizontal: 16),
                       decoration: BoxDecoration(
-                        color: selected
-                            ? AppColors.primary
-                            : AppColors.surface,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: selected
-                              ? AppColors.primary
-                              : AppColors.cardBorder,
-                          width: 1.5,
-                        ),
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.cardBorder),
                       ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            type == DeliveryType.pickupPoint
-                                ? Icons.store_outlined
-                                : Icons.home_outlined,
-                            size: 22,
-                            color: selected
-                                ? Colors.white
-                                : AppColors.textSecondary,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            type.label,
+                          const Icon(Icons.inventory_2_outlined,
+                              size: 48, color: AppColors.textSecondary),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'No products in your catalog yet.',
+                            style: TextStyle(color: AppColors.textSecondary),
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: selected
-                                  ? Colors.white
-                                  : AppColors.textPrimary,
-                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              showModalBottomSheet<void>(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: AppColors.surface,
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.vertical(
+                                      top: Radius.circular(20)),
+                                ),
+                                builder: (_) => _QuickCreateProductSheet(
+                                  onCreated: _onProductSelected,
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.add),
+                            label: const Text('Create New Product'),
                           ),
                         ],
                       ),
+                    );
+                  }
+                  return _ProductSection(
+                    products: products,
+                    selectedProduct: _selectedProduct,
+                    cart: _cart,
+                    qtyCtrl: _qtyCtrl,
+                    priceCtrl: _priceCtrl,
+                    onProductSelected: _onProductSelected,
+                    onAdd: _addToCart,
+                    onRemove: _removeFromCart,
+                    subtotal: _subtotal,
+                    isAdmin: isAdmin,
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              Text(isAdmin ? 'Delivery & Discount' : 'Delivery',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              Row(
+                children: DeliveryType.values.map((type) {
+                  final selected = _deliveryType == type;
+                  final isFirst = type == DeliveryType.values.first;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => _onDeliveryTypeChanged(type),
+                      child: Container(
+                        margin: EdgeInsets.only(right: isFirst ? 8 : 0),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color:
+                              selected ? AppColors.primary : AppColors.surface,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.primary
+                                : AppColors.cardBorder,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              type == DeliveryType.pickupPoint
+                                  ? Icons.store_outlined
+                                  : Icons.home_outlined,
+                              size: 22,
+                              color: selected
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              type.label,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: selected
+                                    ? Colors.white
+                                    : AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
+                  );
+                }).toList(),
+              ),
+              if (isAdmin) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _discountCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Discount Amount (DZD)',
+                    prefixText: 'DZD ',
                   ),
-                );
-              }).toList(),
-            ),
-            if (isAdmin) ...[
-              const SizedBox(height: 12),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _feesCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Fees (DZD)',
+                    prefixText: 'DZD ',
+                    helperText: 'Charged to the client, added to net profit.',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
+              if (_cart.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.cardBorder),
+                  ),
+                  child: Column(
+                    children: [
+                      _SummaryRow(label: 'Products', value: _subtotal),
+                      if (_discountAmount > 0)
+                        _SummaryRow(
+                            label: 'Discount',
+                            value: _discountAmount,
+                            prefix: '-',
+                            valueColor: AppColors.error),
+                      if (_fees > 0)
+                        _SummaryRow(
+                            label: 'Fees',
+                            value: _fees,
+                            prefix: '+',
+                            valueColor: AppColors.success),
+                      const Divider(height: 18),
+                      _SummaryRow(label: 'Total', value: _total, bold: true),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
               TextFormField(
-                controller: _discountCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Discount Amount (DZD)',
-                  prefixText: 'DZD ',
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                controller: _notesCtrl,
+                decoration:
+                    const InputDecoration(labelText: 'Notes (optional)'),
+                maxLines: 3,
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _feesCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Fees (DZD)',
-                  prefixText: 'DZD ',
-                  helperText:
-                      'Charged to the client, added to net profit.',
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: _saving ? null : _submit,
+                child: _saving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text('Create Order'),
               ),
+              const SizedBox(height: 24),
             ],
-            if (_cart.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.cardBorder),
-                ),
-                child: Column(
-                  children: [
-                    _SummaryRow(
-                        label: 'Products',
-                        value: _subtotal),
-                    if (_discountAmount > 0)
-                      _SummaryRow(
-                          label: 'Discount',
-                          value: _discountAmount,
-                          prefix: '-',
-                          valueColor: AppColors.error),
-                    if (_fees > 0)
-                      _SummaryRow(
-                          label: 'Fees',
-                          value: _fees,
-                          prefix: '+',
-                          valueColor: AppColors.success),
-                    const Divider(height: 18),
-                    _SummaryRow(
-                        label: 'Total',
-                        value: _total,
-                        bold: true),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 24),
-            TextFormField(
-              controller: _notesCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Notes (optional)'),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: _saving ? null : _submit,
-              child: _saving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Text('Create Order'),
-            ),
-            const SizedBox(height: 24),
-          ],
+          ),
         ),
       ),
     );
@@ -575,11 +617,10 @@ class _ProductSection extends StatelessWidget {
     // Compute live marge from current price input
     final costPrice = selectedProduct?.costPrice;
     final liveSalePrice = double.tryParse(priceCtrl.text.trim());
-    final double? liveMarge = liveSalePrice != null &&
-            costPrice != null &&
-            costPrice > 0
-        ? ((liveSalePrice - costPrice) / costPrice) * 100
-        : (costPrice != null ? selectedProduct?.marginPercent : null);
+    final double? liveMarge =
+        liveSalePrice != null && costPrice != null && costPrice > 0
+            ? ((liveSalePrice - costPrice) / costPrice) * 100
+            : (costPrice != null ? selectedProduct?.marginPercent : null);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -623,9 +664,8 @@ class _ProductSection extends StatelessWidget {
                 color: liveMarge != null && liveMarge < 0
                     ? AppColors.error
                     : AppColors.textSecondary,
-                fontWeight: liveMarge != null && liveMarge < 0
-                    ? FontWeight.w600
-                    : null,
+                fontWeight:
+                    liveMarge != null && liveMarge < 0 ? FontWeight.w600 : null,
               ),
             ),
           ],
@@ -678,8 +718,8 @@ class _ProductSection extends StatelessWidget {
                               style: theme.textTheme.bodyLarge),
                           Text(
                             '${item.qty} × DZD ${item.unitPrice.toStringAsFixed(2)}',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                                color: AppColors.textSecondary),
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(color: AppColors.textSecondary),
                           ),
                         ],
                       ),
@@ -736,10 +776,10 @@ class _EmployeeDropdown extends ConsumerWidget {
       loading: () => const LinearProgressIndicator(),
       error: (e, _) => Text('Error loading employees: $e'),
       data: (employees) => DropdownButtonFormField<Employee?>(
-        initialValue: selected != null &&
-                employees.any((e) => e.id == selected!.id)
-            ? selected
-            : null,
+        initialValue:
+            selected != null && employees.any((e) => e.id == selected!.id)
+                ? selected
+                : null,
         decoration: const InputDecoration(
           labelText: 'Created By',
           helperText: 'Leave empty to create the order as yourself',
@@ -778,10 +818,10 @@ class _WilayaDropdown extends ConsumerWidget {
       loading: () => const LinearProgressIndicator(),
       error: (e, _) => Text('Error loading wilayas: $e'),
       data: (wilayas) => DropdownButtonFormField<Wilaya>(
-        initialValue: selected != null &&
-                wilayas.any((w) => w.id == selected!.id)
-            ? selected
-            : null,
+        initialValue:
+            selected != null && wilayas.any((w) => w.id == selected!.id)
+                ? selected
+                : null,
         decoration: InputDecoration(
           labelText: 'Wilaya *',
           errorText: showError ? 'Required' : null,
@@ -829,10 +869,10 @@ class _BaladiaDropdown extends ConsumerWidget {
       loading: () => const LinearProgressIndicator(),
       error: (e, _) => Text('Error loading baladias: $e'),
       data: (baladias) => DropdownButtonFormField<Baladia>(
-        initialValue: selected != null &&
-                baladias.any((b) => b.id == selected!.id)
-            ? selected
-            : null,
+        initialValue:
+            selected != null && baladias.any((b) => b.id == selected!.id)
+                ? selected
+                : null,
         decoration: InputDecoration(
           labelText: 'Baladia *',
           errorText: showError ? 'Required' : null,
@@ -877,10 +917,9 @@ class _HubDropdown extends ConsumerWidget {
       loading: () => const LinearProgressIndicator(),
       error: (e, _) => Text('Error loading pickup points: $e'),
       data: (hubs) => DropdownButtonFormField<Hub>(
-        initialValue:
-            selected != null && hubs.any((h) => h.id == selected!.id)
-                ? selected
-                : null,
+        initialValue: selected != null && hubs.any((h) => h.id == selected!.id)
+            ? selected
+            : null,
         decoration: InputDecoration(
           labelText: 'Pickup Point *',
           errorText: showError ? 'Required' : null,
@@ -1038,8 +1077,8 @@ class _ProductSearchFieldState extends ConsumerState<_ProductSearchField> {
           focusNode: _focus,
           decoration: const InputDecoration(
             labelText: 'Product',
-            suffixIcon: Icon(Icons.keyboard_arrow_down,
-                color: AppColors.textSecondary),
+            suffixIcon:
+                Icon(Icons.keyboard_arrow_down, color: AppColors.textSecondary),
           ),
           onChanged: (v) {
             setState(() {
@@ -1074,8 +1113,8 @@ class _ProductSearchFieldState extends ConsumerState<_ProductSearchField> {
                       shrinkWrap: true,
                       padding: EdgeInsets.zero,
                       itemCount: _filtered.length,
-                      separatorBuilder: (_, __) => const Divider(
-                          height: 1, indent: 16, endIndent: 16),
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, indent: 16, endIndent: 16),
                       itemBuilder: (context, i) {
                         final p = _filtered[i];
                         return InkWell(
@@ -1087,8 +1126,8 @@ class _ProductSearchFieldState extends ConsumerState<_ProductSearchField> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 12),
-                            child: Text(p.name,
-                                style: theme.textTheme.bodyLarge),
+                            child:
+                                Text(p.name, style: theme.textTheme.bodyLarge),
                           ),
                         );
                       },
@@ -1107,8 +1146,8 @@ class _ProductSearchFieldState extends ConsumerState<_ProductSearchField> {
                   if (_filtered.isNotEmpty) const Divider(height: 1),
                   InkWell(
                     onTap: _openCreateSheet,
-                    borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(8)),
+                    borderRadius:
+                        const BorderRadius.vertical(bottom: Radius.circular(8)),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 12),
@@ -1155,8 +1194,7 @@ class _QuickCreateProductSheet extends ConsumerStatefulWidget {
 class _QuickCreateProductSheetState
     extends ConsumerState<_QuickCreateProductSheet> {
   final _formKey = GlobalKey<FormState>();
-  late final _nameCtrl =
-      TextEditingController(text: widget.initialName);
+  late final _nameCtrl = TextEditingController(text: widget.initialName);
   final _priceCtrl = TextEditingController();
   final _costCtrl = TextEditingController();
   final _margeCtrl = TextEditingController();
@@ -1241,8 +1279,7 @@ class _QuickCreateProductSheetState
         stockQuantity: 0,
         createdAt: now,
       );
-      final id =
-          await ref.read(productsServiceProvider).createProduct(product);
+      final id = await ref.read(productsServiceProvider).createProduct(product);
       final created = Product(
         id: id,
         name: product.name,
@@ -1288,13 +1325,11 @@ class _QuickCreateProductSheetState
               ),
             ),
             const SizedBox(height: 20),
-            Text('New Product',
-                style: Theme.of(context).textTheme.titleLarge),
+            Text('New Product', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 20),
             TextFormField(
               controller: _nameCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Product Name *'),
+              decoration: const InputDecoration(labelText: 'Product Name *'),
               textCapitalization: TextCapitalization.words,
               autofocus: widget.initialName.isEmpty,
               validator: (v) =>
@@ -1307,10 +1342,9 @@ class _QuickCreateProductSheetState
                   child: TextFormField(
                     controller: _costCtrl,
                     decoration: const InputDecoration(
-                        labelText: 'Cost Price',
-                        prefixText: 'DZD '),
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                        labelText: 'Cost Price', prefixText: 'DZD '),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     autofocus: widget.initialName.isNotEmpty,
                     validator: (v) {
                       if (v != null &&
@@ -1327,10 +1361,9 @@ class _QuickCreateProductSheetState
                   child: TextFormField(
                     controller: _priceCtrl,
                     decoration: const InputDecoration(
-                        labelText: 'Sale Price *',
-                        prefixText: 'DZD '),
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                        labelText: 'Sale Price *', prefixText: 'DZD '),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) return 'Required';
                       if (double.tryParse(v.trim()) == null) {
@@ -1350,8 +1383,8 @@ class _QuickCreateProductSheetState
                 suffixText: '%',
                 helperText: 'Auto-calculé depuis Cost & Sale Price',
               ),
-              keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               validator: (v) {
                 if (v != null &&
                     v.trim().isNotEmpty &&

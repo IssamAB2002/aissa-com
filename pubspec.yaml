@@ -1,5 +1,5 @@
 name: aissa_com
-description: "Aissa Com mobile app."
+description: "Hamid Equipement mobile app."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.4.0+6
+version: 1.5.1+8
 
 
 environment:
@@ -110,10 +110,10 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/aissa_com_icon.png"
+  image_path: "assets/hamid_equipement_icon.png"
   min_sdk_android: 21
   adaptive_icon_background: "#1A237E"
-  adaptive_icon_foreground: "assets/aissa_com_icon.png"
+  adaptive_icon_foreground: "assets/hamid_equipement_icon.png"
   remove_alpha_ios: true
   background_color_ios: "#FFFFFF"
   web:

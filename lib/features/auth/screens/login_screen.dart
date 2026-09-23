@@ -151,7 +151,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         const SizedBox(height: 20),
         Text(
-          'Aissa Com',
+          'Hamid Equipement',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.primary,
                 fontWeight: FontWeight.w700,

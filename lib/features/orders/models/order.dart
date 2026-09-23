@@ -129,11 +129,16 @@ class Order {
 
   bool get hasZrShippingData => deliveryType == DeliveryType.homeDelivery
       ? (wilayaZrTerritoryId != null && baladiaZrTerritoryId != null)
-      : (wilayaZrTerritoryId != null && hubZrId != null);
+      : (wilayaZrTerritoryId != null &&
+          baladiaZrTerritoryId != null &&
+          hubZrId != null);
 
   double get itemsSubtotal => items.fold(0.0, (s, i) => s + i.subtotal);
   double get netProfit =>
-      items.fold(0.0, (s, i) => s + i.profit) - zrDeliveryFee + fees;
+      items.fold(0.0, (s, i) => s + i.profit) -
+      discountAmount -
+      zrDeliveryFee +
+      fees;
 
   /// Net income used as the basis for employee reward calculations.
   /// `total` already has the discount netted out. The ZR delivery fee is

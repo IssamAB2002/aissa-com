@@ -1,8 +1,8 @@
-# Aissa Com
+# Hamid Equipement
 
 ## Description
 
-Aissa Com is a multi-account e-commerce management mobile app built for teams.
+Hamid Equipement is a multi-account e-commerce management mobile app built for teams.
 Admins and employees each have their own accounts, with role-based access so employees have limited permissions.
 
 It tracks your shop activity end-to-end: sales/income, orders, products, inventory, and operational tasks.

@@ -318,7 +318,7 @@ class _ProfileDrawer extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     const Text(
-                      'Aissa Com',
+                      'Hamid Equipement',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,

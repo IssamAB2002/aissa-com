@@ -13,5 +13,5 @@ void main() async {
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
-  runApp(const ProviderScope(child: AissaComApp()));
+  runApp(const ProviderScope(child: HamidEquipementApp()));
 }

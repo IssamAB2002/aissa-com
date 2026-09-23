@@ -86,7 +86,7 @@ class DashboardScreen extends ConsumerWidget {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Aissa Com'),
+            const Text('Hamid Equipement'),
             Text(
               DateFormat('EEEE, MMM d').format(now),
               style: const TextStyle(
