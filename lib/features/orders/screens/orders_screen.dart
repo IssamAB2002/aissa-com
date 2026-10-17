@@ -8,6 +8,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/order.dart';
 import '../providers/orders_provider.dart';
+import '../widgets/multi_cp_dialog.dart';
 import '../widgets/multi_zr_send_dialog.dart';
 import '../widgets/order_card.dart';
 
@@ -25,6 +26,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   DateTimeRange? _customRange;
   bool _multiZrMode = false;
   final Set<String> _selectedForZr = {};
+  bool _multiCpMode = false;
 
   DateTimeRange? _activeDateRange() {
     final now = DateTime.now();
@@ -47,6 +49,33 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       default:
         return null;
     }
+  }
+
+  List<Order> _filteredForMultiZr(List<Order> orders) {
+    final activeRange = _activeDateRange();
+    return orders.where((o) {
+      final matchStatus = o.status == OrderStatus.pending &&
+          !o.zrSubmitted &&
+          o.hasZrShippingData;
+      final matchSearch = _search.isEmpty ||
+          o.customerName.toLowerCase().contains(_search.toLowerCase());
+      final matchDate = activeRange == null ||
+          (!o.createdAt.isBefore(activeRange.start) &&
+              o.createdAt.isBefore(activeRange.end));
+      return matchStatus && matchSearch && matchDate;
+    }).toList();
+  }
+
+  void _toggleSelectAll(List<Order> eligible) {
+    final allSelected = eligible.isNotEmpty &&
+        eligible.every((o) => _selectedForZr.contains(o.id));
+    setState(() {
+      if (allSelected) {
+        _selectedForZr.removeAll(eligible.map((o) => o.id));
+      } else {
+        _selectedForZr.addAll(eligible.map((o) => o.id));
+      }
+    });
   }
 
   Future<void> _refresh() async {
@@ -183,6 +212,49 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     }
   }
 
+  Future<void> _startMultiCp() async {
+    final allOrders = ref.read(ordersStreamProvider).valueOrNull ?? [];
+    final activeRange = _activeDateRange();
+    final candidates = allOrders.where((o) {
+      final matchStatus = o.zrSubmitted && !o.paymentConfirmed;
+      final matchDate = activeRange == null ||
+          (!o.createdAt.isBefore(activeRange.start) &&
+              o.createdAt.isBefore(activeRange.end));
+      return matchStatus && matchDate;
+    }).toList();
+
+    setState(() => _multiCpMode = false);
+
+    if (candidates.isEmpty) {
+      await AppConfirmDialog.showAlert(
+        context,
+        icon: Icons.info_outline,
+        iconColor: AppColors.textHint,
+        title: 'No Orders to Check',
+        message:
+            'No ZR-submitted orders awaiting payment confirmation match this date range.',
+      );
+      return;
+    }
+
+    final service = ref.read(ordersServiceProvider);
+    final result =
+        await MultiCpDialog.show(context, orders: candidates, service: service);
+    if (!mounted || result == null) return;
+
+    await AppConfirmDialog.showAlert(
+      context,
+      icon: result.failed > 0
+          ? Icons.error_outline
+          : Icons.check_circle_outline,
+      iconColor: result.failed > 0 ? AppColors.error : AppColors.success,
+      title: 'Multi-CP Complete',
+      message: 'Checked ${result.checked} order(s), ${result.eligible} were '
+          'delivered, ${result.confirmed} payment(s) confirmed'
+          '${result.failed > 0 ? ', ${result.failed} failed' : ''}.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ordersAsync = ref.watch(ordersStreamProvider);
@@ -200,28 +272,46 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           ),
         ],
       ),
-      floatingActionButton: !_multiZrMode
+      floatingActionButton: _multiCpMode
           ? FloatingActionButton.extended(
-              onPressed: () => context.push('/orders/new'),
-              icon: const Icon(Icons.add),
-              label: const Text('New Order'),
+              onPressed: _startMultiCp,
+              icon: const Icon(Icons.price_check),
+              label: const Text('Check ZR Status'),
             )
-          : (_selectedForZr.isEmpty
-              ? null
-              : FloatingActionButton.extended(
-                  onPressed: _startSending,
-                  icon: const Icon(Icons.local_shipping_outlined),
-                  label: Text('Start Sending (${_selectedForZr.length})'),
-                )),
+          : (!_multiZrMode
+              ? FloatingActionButton.extended(
+                  onPressed: () => context.push('/orders/new'),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New Order'),
+                )
+              : (_selectedForZr.isEmpty
+                  ? null
+                  : FloatingActionButton.extended(
+                      onPressed: _startSending,
+                      icon: const Icon(Icons.local_shipping_outlined),
+                      label: Text('Start Sending (${_selectedForZr.length})'),
+                    ))),
       body: Column(
         children: [
           _SearchBar(onChanged: (v) => setState(() => _search = v)),
           if (_multiZrMode)
             _MultiZrHeader(
+              allSelected: () {
+                final eligible =
+                    _filteredForMultiZr(ordersAsync.valueOrNull ?? []);
+                return eligible.isNotEmpty &&
+                    eligible.every((o) => _selectedForZr.contains(o.id));
+              }(),
+              onSelectAll: () => _toggleSelectAll(
+                  _filteredForMultiZr(ordersAsync.valueOrNull ?? [])),
               onCancel: () => setState(() {
                 _multiZrMode = false;
                 _selectedForZr.clear();
               }),
+            )
+          else if (_multiCpMode)
+            _MultiCpHeader(
+              onCancel: () => setState(() => _multiCpMode = false),
             )
           else
             _FilterChips(
@@ -229,6 +319,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               onSelected: (s) => setState(() => _filter = s),
               showMultiZr: isAdmin,
               onMultiZr: () => setState(() => _multiZrMode = true),
+              showMultiCp: isAdmin,
+              onMultiCp: () => setState(() => _multiCpMode = true),
             ),
           _DateFilterChips(
             selected: _dateFilter,
@@ -242,25 +334,20 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (orders) {
                 final activeRange = _activeDateRange();
-                final eligible = _multiZrMode
-                    ? orders.where((o) =>
-                        o.status == OrderStatus.pending &&
-                        !o.zrSubmitted &&
-                        o.hasZrShippingData)
-                    : orders;
-                final filtered = eligible.where((o) {
-                  final matchStatus = _multiZrMode ||
-                      _filter == null ||
-                      o.status == _filter;
-                  final matchSearch = _search.isEmpty ||
-                      o.customerName
-                          .toLowerCase()
-                          .contains(_search.toLowerCase());
-                  final matchDate = activeRange == null ||
-                      (!o.createdAt.isBefore(activeRange.start) &&
-                          o.createdAt.isBefore(activeRange.end));
-                  return matchStatus && matchSearch && matchDate;
-                }).toList();
+                final filtered = _multiZrMode
+                    ? _filteredForMultiZr(orders)
+                    : orders.where((o) {
+                        final matchStatus =
+                            _filter == null || o.status == _filter;
+                        final matchSearch = _search.isEmpty ||
+                            o.customerName
+                                .toLowerCase()
+                                .contains(_search.toLowerCase());
+                        final matchDate = activeRange == null ||
+                            (!o.createdAt.isBefore(activeRange.start) &&
+                                o.createdAt.isBefore(activeRange.end));
+                        return matchStatus && matchSearch && matchDate;
+                      }).toList();
 
                 if (filtered.isEmpty) {
                   return RefreshIndicator(
@@ -379,11 +466,15 @@ class _FilterChips extends StatelessWidget {
     required this.onSelected,
     this.showMultiZr = false,
     this.onMultiZr,
+    this.showMultiCp = false,
+    this.onMultiCp,
   });
   final OrderStatus? selected;
   final ValueChanged<OrderStatus?> onSelected;
   final bool showMultiZr;
   final VoidCallback? onMultiZr;
+  final bool showMultiCp;
+  final VoidCallback? onMultiCp;
 
   @override
   Widget build(BuildContext context) {
@@ -444,6 +535,71 @@ class _FilterChips extends StatelessWidget {
               ),
             ),
           ],
+          if (showMultiCp) ...[
+            const SizedBox(width: 4),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onMultiCp,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.primary, width: 1.5),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.price_check,
+                          size: 15, color: AppColors.primary),
+                      SizedBox(width: 6),
+                      Text(
+                        'Multi-CP',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MultiCpHeader extends StatelessWidget {
+  const _MultiCpHeader({required this.onCancel});
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Pick a date range below, then check ZR delivery status',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onCancel,
+            child: const Text('Cancel'),
+          ),
         ],
       ),
     );
@@ -451,7 +607,13 @@ class _FilterChips extends StatelessWidget {
 }
 
 class _MultiZrHeader extends StatelessWidget {
-  const _MultiZrHeader({required this.onCancel});
+  const _MultiZrHeader({
+    required this.allSelected,
+    required this.onSelectAll,
+    required this.onCancel,
+  });
+  final bool allSelected;
+  final VoidCallback onSelectAll;
   final VoidCallback onCancel;
 
   @override
@@ -469,6 +631,10 @@ class _MultiZrHeader extends StatelessWidget {
                 color: AppColors.textPrimary,
               ),
             ),
+          ),
+          TextButton(
+            onPressed: onSelectAll,
+            child: Text(allSelected ? 'Deselect All' : 'Select All'),
           ),
           TextButton(
             onPressed: onCancel,

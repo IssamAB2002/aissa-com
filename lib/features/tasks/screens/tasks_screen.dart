@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../models/task.dart';
 import '../providers/tasks_provider.dart';
@@ -40,8 +41,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
   @override
   Widget build(BuildContext context) {
     final tasksAsync = ref.watch(tasksStreamProvider);
-    final isAdmin =
-        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final isAdmin = ref
+            .watch(currentUserProvider)
+            .valueOrNull
+            ?.hasPermission(AppPermission.manageTasks) ??
+        false;
 
     return Scaffold(
       appBar: AppBar(
@@ -86,7 +90,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                       size: 16, color: AppColors.secondary),
                   const SizedBox(width: 8),
                   Text(
-                    'View only — tasks can only be managed by admins.',
+                    'View only — you don\'t have permission to manage tasks.',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.secondary

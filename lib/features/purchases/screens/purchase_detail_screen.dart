@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_confirm_dialog.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../models/purchase.dart';
 import '../providers/purchases_provider.dart';
@@ -18,8 +19,11 @@ class PurchaseDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final purchasesAsync = ref.watch(purchasesStreamProvider);
-    final isAdmin =
-        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final isAdmin = ref
+            .watch(currentUserProvider)
+            .valueOrNull
+            ?.hasPermission(AppPermission.managePurchases) ??
+        false;
     return purchasesAsync.when(
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -54,27 +58,19 @@ class _PurchaseDetailView extends StatelessWidget {
   final bool isAdmin;
 
   void _onEditTap(BuildContext context) {
-    if (purchase.paymentConfirmed) {
+    if (purchase.paymentConfirmed ||
+        purchase.status == PurchaseStatus.received) {
       AppConfirmDialog.showAlert(
         context,
         icon: Icons.lock_outline,
         iconColor: AppColors.error,
         title: 'Editing Not Allowed',
-        message:
-            'This purchase has been paid and received.\nNo further edits are permitted.',
+        message: "This Purchase can't be modified since it's already "
+            'Purchase Received or Payment Confirmed.',
       );
       return;
     }
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) =>
-          _EditPurchaseSheet(purchase: purchase, service: service),
-    );
+    context.push('/purchases/${purchase.id}/edit', extra: purchase);
   }
 
   @override
@@ -429,188 +425,6 @@ class _PaymentCardState extends State<_PaymentCard> {
           ],
         ],
       ),
-    );
-  }
-}
-
-// ─── Edit Purchase Sheet ─────────────────────────────────────────────────────
-
-class _EditPurchaseSheet extends StatefulWidget {
-  const _EditPurchaseSheet(
-      {required this.purchase, required this.service});
-  final Purchase purchase;
-  final PurchasesService service;
-
-  @override
-  State<_EditPurchaseSheet> createState() => _EditPurchaseSheetState();
-}
-
-class _EditPurchaseSheetState extends State<_EditPurchaseSheet> {
-  late final _feesCtrl = TextEditingController(
-    text: widget.purchase.fees > 0
-        ? widget.purchase.fees.toStringAsFixed(2)
-        : '',
-  );
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _feesCtrl.addListener(() => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _feesCtrl.dispose();
-    super.dispose();
-  }
-
-  double get _fees => double.tryParse(_feesCtrl.text.trim()) ?? 0.0;
-  double get _newTotal => widget.purchase.itemsSubtotal + _fees;
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await widget.service.updateFinance(
-        id: widget.purchase.id,
-        fees: _fees,
-        total: _newTotal,
-      );
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update: $e')),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-          24, 12, 24, MediaQuery.of(context).viewInsets.bottom + 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.cardBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text('Edit Purchase', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 4),
-          Text(
-            'Adjust fees for this purchase.',
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _feesCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Fees (DZD)',
-              prefixText: 'DZD ',
-            ),
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.cardBorder),
-            ),
-            child: Column(
-              children: [
-                _EditSummaryRow(
-                  label: 'Products',
-                  value:
-                      'DZD ${widget.purchase.itemsSubtotal.toStringAsFixed(2)}',
-                ),
-                if (_fees != 0) ...[
-                  const SizedBox(height: 4),
-                  _EditSummaryRow(
-                    label: 'Fees',
-                    value: '+ DZD ${_fees.toStringAsFixed(2)}',
-                  ),
-                ],
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Divider(height: 1),
-                ),
-                _EditSummaryRow(
-                  label: 'New Total',
-                  value: 'DZD ${_newTotal.toStringAsFixed(2)}',
-                  bold: true,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Text('Save Changes'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EditSummaryRow extends StatelessWidget {
-  const _EditSummaryRow({
-    required this.label,
-    required this.value,
-    this.bold = false,
-  });
-
-  final String label;
-  final String value;
-  final bool bold;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color:
-                    bold ? AppColors.textPrimary : AppColors.textSecondary,
-                fontWeight: bold ? FontWeight.w700 : null,
-              ),
-        ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
-              ),
-        ),
-      ],
     );
   }
 }

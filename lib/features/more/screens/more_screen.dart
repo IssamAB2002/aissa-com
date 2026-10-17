@@ -3,32 +3,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 
 class MoreScreen extends ConsumerWidget {
   const MoreScreen({super.key});
 
-  static const _adminItems = [
-    _MenuItem(
-      icon: Icons.inventory_2_outlined,
-      label: 'Products',
-      subtitle: 'Catalogue, pricing & stock',
-      color: AppColors.secondary,
-      path: '/products',
-    ),
+  // Directory bundles several admin screens with no per-tab gating, so it
+  // only appears for full admins; permitted employees reach the individual
+  // screens below directly.
+  static const _directoryItem = _MenuItem(
+    icon: Icons.folder_shared_outlined,
+    label: 'Directory',
+    subtitle: 'Products, inventory, employees, rewards & suppliers',
+    color: AppColors.secondary,
+    path: '/directory',
+  );
+
+  static const _permissionItems = [
     _MenuItem(
       icon: Icons.bar_chart_outlined,
       label: 'Analytics',
       subtitle: 'Daily, weekly & monthly financials',
       color: Color(0xFF00897B),
       path: '/analytics',
-    ),
-    _MenuItem(
-      icon: Icons.warehouse_outlined,
-      label: 'Inventory',
-      subtitle: 'Stock levels & movements',
-      color: AppColors.warning,
-      path: '/inventory',
+      permission: AppPermission.viewAnalytics,
     ),
     _MenuItem(
       icon: Icons.account_balance_outlined,
@@ -36,20 +35,15 @@ class MoreScreen extends ConsumerWidget {
       subtitle: 'Revenue, expenses & profit',
       color: AppColors.success,
       path: '/income',
+      permission: AppPermission.viewIncome,
     ),
     _MenuItem(
       icon: Icons.people_outline,
       label: 'Employees',
-      subtitle: 'Team members & rewards',
+      subtitle: 'Manage employees & reward settings',
       color: AppColors.primary,
       path: '/employees',
-    ),
-    _MenuItem(
-      icon: Icons.emoji_events_outlined,
-      label: 'Reward Settings',
-      subtitle: 'Configure reward weights & pool',
-      color: Color(0xFF7B1FA2),
-      path: '/reward-settings',
+      permission: AppPermission.manageEmployees,
     ),
     _MenuItem(
       icon: Icons.local_shipping_outlined,
@@ -57,25 +51,37 @@ class MoreScreen extends ConsumerWidget {
       subtitle: 'Shipping credentials & territory sync',
       color: Color(0xFF00695C),
       path: '/zr-settings',
+      permission: AppPermission.manageZrSettings,
+    ),
+    _MenuItem(
+      icon: Icons.checklist_outlined,
+      label: 'Purchase Lists',
+      subtitle: 'Generate & track supplier purchase lists',
+      color: Color(0xFF6D4C41),
+      path: '/purchase-lists',
+      permission: AppPermission.managePurchases,
     ),
   ];
 
-  static const _employeeItems = [
-    _MenuItem(
-      icon: Icons.inventory_2_outlined,
-      label: 'Inventory',
-      subtitle: 'Stock levels & movements',
-      color: AppColors.warning,
-      path: '/inventory',
-    ),
-  ];
+  static const _inventoryItem = _MenuItem(
+    icon: Icons.inventory_2_outlined,
+    label: 'Inventory',
+    subtitle: 'Stock levels & movements',
+    color: AppColors.warning,
+    path: '/inventory',
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(currentUserProvider);
     final appUser = userAsync.valueOrNull;
     final isAdmin = appUser?.isAdmin ?? false;
-    final items = isAdmin ? _adminItems : _employeeItems;
+    final items = [
+      if (isAdmin) _directoryItem,
+      ..._permissionItems.where(
+          (item) => appUser?.hasPermission(item.permission!) ?? false),
+      _inventoryItem,
+    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -175,10 +181,12 @@ class _MenuItem {
     required this.subtitle,
     required this.color,
     required this.path,
+    this.permission,
   });
   final IconData icon;
   final String label;
   final String subtitle;
   final Color color;
   final String path;
+  final String? permission;
 }

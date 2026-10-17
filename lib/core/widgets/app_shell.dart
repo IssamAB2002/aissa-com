@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../features/auth/models/app_permission.dart';
 import '../../features/auth/models/app_user.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/services/auth_service.dart';
@@ -85,6 +86,7 @@ class AppShell extends ConsumerWidget {
   // For employees: only _employeeTabs are used, so this only affects admins
   // For admins: products and inventory are accessed via More menu, so highlight More tab
   static const _moreRoutes = [
+    '/directory',
     '/products',
     '/inventory',
     '/income',
@@ -211,6 +213,51 @@ class _ProfileDrawer extends StatelessWidget {
   final VoidCallback onSignOut;
   final ValueChanged<String> onNavigate;
 
+  static const _quickAccessItems = [
+    (
+      icon: Icons.account_balance_outlined,
+      label: 'Income & Benefits',
+      iconColor: AppColors.success,
+      path: '/income',
+      permission: AppPermission.viewIncome,
+    ),
+    (
+      icon: Icons.people_outline,
+      label: 'Employees',
+      iconColor: AppColors.primary,
+      path: '/employees',
+      permission: AppPermission.manageEmployees,
+    ),
+    (
+      icon: Icons.emoji_events_outlined,
+      label: 'Reward Settings',
+      iconColor: Color(0xFF7B1FA2),
+      path: '/reward-settings',
+      permission: AppPermission.manageEmployees,
+    ),
+  ];
+
+  /// Rows shown for admins (all of them) or for employees who were granted
+  /// the matching permission.
+  List<_NavRow> _quickAccessRows(
+      AppUser? user, bool isAdmin, ValueChanged<String> onNavigate) {
+    final visible = isAdmin
+        ? _quickAccessItems
+        : _quickAccessItems
+            .where((i) => user?.hasPermission(i.permission) ?? false)
+            .toList();
+    return [
+      for (var i = 0; i < visible.length; i++)
+        _NavRow(
+          icon: visible[i].icon,
+          label: visible[i].label,
+          iconColor: visible[i].iconColor,
+          isLast: i == visible.length - 1,
+          onTap: () => onNavigate(visible[i].path),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = appUser;
@@ -265,32 +312,13 @@ class _ProfileDrawer extends StatelessWidget {
                   ),
                 ]),
 
-                // Admin quick-access
-                if (isAdmin) ...[
+                // Admin / granted-permission quick-access
+                if (_quickAccessRows(user, isAdmin, onNavigate)
+                    case final rows when rows.isNotEmpty) ...[
                   const SizedBox(height: 24),
                   _SectionLabel('ADMINISTRATION'),
                   const SizedBox(height: 8),
-                  _NavCard(children: [
-                    _NavRow(
-                      icon: Icons.account_balance_outlined,
-                      label: 'Income & Benefits',
-                      iconColor: AppColors.success,
-                      onTap: () => onNavigate('/income'),
-                    ),
-                    _NavRow(
-                      icon: Icons.people_outline,
-                      label: 'Employees',
-                      iconColor: AppColors.primary,
-                      onTap: () => onNavigate('/employees'),
-                    ),
-                    _NavRow(
-                      icon: Icons.emoji_events_outlined,
-                      label: 'Reward Settings',
-                      iconColor: const Color(0xFF7B1FA2),
-                      isLast: true,
-                      onTap: () => onNavigate('/reward-settings'),
-                    ),
-                  ]),
+                  _NavCard(children: rows),
                 ],
               ],
             ),

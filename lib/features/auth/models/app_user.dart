@@ -10,6 +10,7 @@ class AppUser {
     required this.role,
     this.employeeId,
     required this.createdAt,
+    this.permissions = const {},
   });
 
   final String uid;
@@ -18,9 +19,14 @@ class AppUser {
   final UserRole role;
   final String? employeeId;
   final DateTime createdAt;
+  final Set<String> permissions;
 
   bool get isAdmin => role == UserRole.admin;
   bool get isEmployee => role == UserRole.employee;
+
+  /// Admins implicitly have every permission; employees only have the keys
+  /// explicitly granted to them by an admin.
+  bool hasPermission(String key) => isAdmin || permissions.contains(key);
 
   Map<String, dynamic> toMap() => {
         'uid': uid,
@@ -29,6 +35,7 @@ class AppUser {
         'role': role.name,
         'employeeId': employeeId,
         'createdAt': Timestamp.fromDate(createdAt),
+        'permissions': permissions.toList(),
       };
 
   factory AppUser.fromDoc(DocumentSnapshot doc) {
@@ -45,6 +52,8 @@ class AppUser {
       createdAt: m['createdAt'] != null
           ? (m['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
+      permissions: ((m['permissions'] as List?)?.cast<String>() ?? const [])
+          .toSet(),
     );
   }
 
@@ -52,6 +61,7 @@ class AppUser {
     String? displayName,
     UserRole? role,
     String? employeeId,
+    Set<String>? permissions,
   }) =>
       AppUser(
         uid: uid,
@@ -60,5 +70,6 @@ class AppUser {
         role: role ?? this.role,
         employeeId: employeeId ?? this.employeeId,
         createdAt: createdAt,
+        permissions: permissions ?? this.permissions,
       );
 }

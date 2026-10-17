@@ -16,6 +16,10 @@ class ZrServiceException implements Exception {
 
 const _zrBaseUrl = 'https://api.zrexpress.app/api/v1';
 
+/// ZR's "livré" (delivered) state id — the state-history's last entry must
+/// land on this id for an order to qualify for Multi-CP auto-confirmation.
+const zrLivreStateId = '8359ea70-5d8d-4f87-b4cb-7333fdb083bd';
+
 /// ZR Express API client — ports Modeline's `zr_service.py` logic 1:1 for
 /// direct client-side calls (this app has no backend to route through).
 class ZrClient {
@@ -55,6 +59,9 @@ class ZrClient {
     }
     final http.Response response;
     switch (method) {
+      case 'GET':
+        response = await http.get(uri, headers: headers);
+        break;
       case 'POST':
         response = await http.post(uri,
             headers: headers, body: body != null ? jsonEncode(body) : null);
@@ -64,6 +71,10 @@ class ZrClient {
         break;
       default:
         throw ArgumentError('Unsupported method: $method');
+    }
+    if (method == 'GET') {
+      debugPrint(
+          'ZR GET $url -> ${response.statusCode}: ${response.body}');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final snippet = response.body.length > 300
@@ -295,5 +306,56 @@ class ZrClient {
       secretKey,
       tenantId,
     );
+  }
+
+  /// Fetches the parcel's status-change history, oldest first.
+  Future<List<Map<String, dynamic>>> getParcelStateHistory(
+    String parcelId,
+    String secretKey,
+    String tenantId,
+  ) async {
+    final response = await _request(
+      '$_zrBaseUrl/parcels/$parcelId/state-history',
+      'GET',
+      secretKey,
+      tenantId,
+    );
+    if (response is! List) {
+      throw ZrServiceException(
+          'ZR response for state-history was not a list: ${response ?? '(empty)'}');
+    }
+    final history = response.cast<Map<String, dynamic>>();
+    debugPrint('ZR state-history [$parcelId]: ${history.length} event(s) — '
+        '${history.map((e) => (e['newState'] as Map<String, dynamic>?)?['name']).join(' -> ')}');
+    return history;
+  }
+
+  /// True if [parcelId]'s status-history ever reached ZR's "livré"
+  /// (delivered) state — the signal Multi-CP uses to auto-confirm payment.
+  ///
+  /// Once a parcel is delivered, ZR keeps appending post-delivery
+  /// accounting states after it (e.g. `encaisse`, `recouvert` — cash
+  /// collected/remitted), so `livré` is never the *last* entry once those
+  /// happen. Those later states still mean the order was delivered and the
+  /// client paid, so this checks whether `livré` appears anywhere in the
+  /// history, not just as the last entry.
+  Future<bool> isParcelDelivered(
+    String parcelId,
+    String secretKey,
+    String tenantId,
+  ) async {
+    final history =
+        await getParcelStateHistory(parcelId, secretKey, tenantId);
+    if (history.isEmpty) {
+      debugPrint('ZR state-history [$parcelId]: empty history -> not delivered');
+      return false;
+    }
+    final delivered = history.any((e) =>
+        (e['newState'] as Map<String, dynamic>?)?['id'] == zrLivreStateId);
+    final lastName =
+        (history.last['newState'] as Map<String, dynamic>?)?['name'];
+    debugPrint('ZR state-history [$parcelId]: last state = "$lastName", '
+        'reached livré at some point = $delivered -> delivered=$delivered');
+    return delivered;
   }
 }

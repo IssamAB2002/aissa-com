@@ -4,6 +4,9 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_confirm_dialog.dart';
+import '../../auth/models/app_permission.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../auth/services/auth_service.dart';
 import '../../income/models/transaction.dart';
 import '../../income/providers/income_provider.dart';
 import '../../orders/models/order.dart';
@@ -11,13 +14,12 @@ import '../../orders/providers/orders_provider.dart';
 import '../models/employee.dart';
 import '../providers/employees_provider.dart';
 
-/// Returns confirmed-order count and revenue total for [uid] within [period].
+/// Returns confirmed-order count and revenue total for [employeeId] within [period].
 ({int count, double total}) _employeeStats(
-    List<Order> orders, String? uid, String period) {
-  if (uid == null) return (count: 0, total: 0.0);
+    List<Order> orders, String employeeId, String period) {
   final now = DateTime.now();
   final matched = orders.where((o) {
-    if (!o.paymentConfirmed || o.creatorId != uid) return false;
+    if (!o.paymentConfirmed || o.creatorId != employeeId) return false;
     final d = o.createdAt;
     switch (period) {
       case 'daily':
@@ -49,6 +51,8 @@ class EmployeeDetailScreen extends ConsumerWidget {
     final employeesAsync = ref.watch(employeesStreamProvider);
     final settingsAsync = ref.watch(rewardSettingsProvider);
     final ordersAsync = ref.watch(ordersStreamProvider);
+    final isAdmin =
+        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
 
     return employeesAsync.when(
       loading: () =>
@@ -66,20 +70,16 @@ class EmployeeDetailScreen extends ConsumerWidget {
             settingsAsync.valueOrNull ?? const RewardSettings();
         final allOrders = ordersAsync.valueOrNull ?? [];
         final stats =
-            _employeeStats(allOrders, employee.uid, settings.benefitPeriod);
-        final displayCount =
-            employee.uid != null ? stats.count : employee.confirmedOrders;
+            _employeeStats(allOrders, employee.id, settings.benefitPeriod);
+        final displayCount = stats.count;
         final rewardAmount = employee.rewardAmount(stats.total);
         final amountOwed = employee.amountOwed;
         final salaryPayments = ref.watch(salaryPaymentsProvider(employee.id));
 
         // All-time confirmed orders for this employee (list view)
-        final confirmedOrders = employee.uid != null
-            ? allOrders
-                .where((o) =>
-                    o.creatorId == employee.uid && o.paymentConfirmed)
-                .toList()
-            : <Order>[];
+        final confirmedOrders = allOrders
+            .where((o) => o.creatorId == employee.id && o.paymentConfirmed)
+            .toList();
 
         return Scaffold(
           appBar: AppBar(
@@ -146,6 +146,12 @@ class EmployeeDetailScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 12),
+
+              // Permission management (admin only, account-holding employees only)
+              if (isAdmin && employee.hasAccount) ...[
+                _PermissionsCard(uid: employee.uid!),
+                const SizedBox(height: 12),
+              ],
 
               // Reward card
               _Card(
@@ -278,9 +284,7 @@ class EmployeeDetailScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      employee.uid != null
-                          ? 'Auto-tracked from orders created by this employee.'
-                          : 'No app account — orders cannot be auto-tracked.',
+                      'Auto-tracked from orders created by this employee.',
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
@@ -403,6 +407,58 @@ class EmployeeDetailScreen extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Lets an admin grant/revoke this employee's access to specific
+/// admin-restricted features without making them a full admin.
+class _PermissionsCard extends ConsumerWidget {
+  const _PermissionsCard({required this.uid});
+  final String uid;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final userAsync = ref.watch(userProfileProvider(uid));
+    final permissions = userAsync.valueOrNull?.permissions ?? const {};
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Access Permissions',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            'Grant access to specific admin-restricted features.',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 8),
+          ...AppPermission.all.map((key) {
+            final granted = permissions.contains(key);
+            return CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(AppPermission.label(key)),
+              subtitle: Text(AppPermission.description(key)),
+              value: granted,
+              onChanged: (checked) {
+                final next = Set<String>.from(permissions);
+                if (checked == true) {
+                  next.add(key);
+                } else {
+                  next.remove(key);
+                }
+                ref.read(authServiceProvider).updateUserPermissions(uid, next);
+              },
+            );
+          }),
+        ],
+      ),
     );
   }
 }

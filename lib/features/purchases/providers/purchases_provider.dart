@@ -10,3 +10,8 @@ final purchasesServiceProvider =
 final purchasesStreamProvider = StreamProvider<List<Purchase>>((ref) {
   return ref.watch(purchasesServiceProvider).streamPurchases();
 });
+
+final purchasesForOrderProvider =
+    StreamProvider.family<List<Purchase>, String>((ref, orderId) {
+  return ref.watch(purchasesServiceProvider).streamPurchasesForOrder(orderId);
+});

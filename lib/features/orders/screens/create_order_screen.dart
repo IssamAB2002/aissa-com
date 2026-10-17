@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../employees/models/employee.dart';
 import '../../employees/providers/employees_provider.dart';
@@ -17,7 +18,8 @@ import '../models/order.dart';
 import '../providers/orders_provider.dart';
 
 class CreateOrderScreen extends ConsumerStatefulWidget {
-  const CreateOrderScreen({super.key});
+  const CreateOrderScreen({super.key, this.existingOrder});
+  final Order? existingOrder;
 
   @override
   ConsumerState<CreateOrderScreen> createState() => _CreateOrderScreenState();
@@ -43,12 +45,31 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
   bool _saving = false;
   bool _triedSubmit = false;
 
+  late bool _cartPrefilled = widget.existingOrder == null;
+  late bool _employeePrefilled = widget.existingOrder == null;
+  late bool _wilayaPrefilled = widget.existingOrder == null;
+  late bool _baladiaPrefilled = widget.existingOrder == null;
+  late bool _hubPrefilled = widget.existingOrder == null;
+
   @override
   void initState() {
     super.initState();
     _priceCtrl.addListener(_onPriceChanged);
     _discountCtrl.addListener(_onExtraFieldChanged);
     _feesCtrl.addListener(_onExtraFieldChanged);
+    final existing = widget.existingOrder;
+    if (existing != null) {
+      _nameCtrl.text = existing.customerName;
+      _phoneCtrl.text = existing.customerPhone ?? '';
+      _addressCtrl.text = existing.address ?? '';
+      _notesCtrl.text = existing.notes ?? '';
+      _discountCtrl.text = existing.discountAmount > 0
+          ? existing.discountAmount.toStringAsFixed(2)
+          : '';
+      _feesCtrl.text =
+          existing.fees > 0 ? existing.fees.toStringAsFixed(2) : '';
+      _deliveryType = existing.deliveryType;
+    }
   }
 
   void _onPriceChanged() => setState(() {});
@@ -251,13 +272,14 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       final appUser = ref.read(currentUserProvider).valueOrNull;
       final selectedEmployee = _selectedEmployee;
       final creatorId =
-          selectedEmployee != null ? selectedEmployee.uid : appUser?.uid;
+          selectedEmployee != null ? selectedEmployee.id : appUser?.employeeId;
       final creatorName = selectedEmployee != null
           ? selectedEmployee.name
           : appUser?.displayName;
       final wilaya = _selectedWilaya!;
+      final existing = widget.existingOrder;
       final order = Order(
-        id: const Uuid().v4(),
+        id: existing?.id ?? const Uuid().v4(),
         customerName: _nameCtrl.text.trim(),
         customerPhone:
             _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
@@ -273,13 +295,16 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                   quantity: i.qty,
                 ))
             .toList(),
-        status: OrderStatus.pending,
+        status: existing?.status ?? OrderStatus.pending,
         total: _total,
         discountAmount: _discountAmount,
         fees: _fees,
         deliveryType: _deliveryType,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        createdAt: DateTime.now(),
+        createdAt: existing?.createdAt ?? DateTime.now(),
+        updatedAt: existing != null ? DateTime.now() : null,
+        paymentConfirmed: existing?.paymentConfirmed ?? false,
+        stockApplied: existing?.stockApplied ?? false,
         creatorId: creatorId,
         creatorName: creatorName,
         wilayaId: wilaya.id,
@@ -291,24 +316,144 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
         hubId: _selectedHub?.id,
         hubZrId: _selectedHub?.zrHubId,
         hubName: _selectedHub?.name,
+        zrSubmitted: existing?.zrSubmitted ?? false,
+        zrCustomerId: existing?.zrCustomerId,
+        zrParcelId: existing?.zrParcelId,
+        zrTrackingNumber: existing?.zrTrackingNumber,
+        zrPostedAt: existing?.zrPostedAt,
+        zrDeliveryFee: existing?.zrDeliveryFee ?? 0.0,
       );
-      await ref.read(ordersServiceProvider).createOrder(order);
+      final service = ref.read(ordersServiceProvider);
+      if (existing != null) {
+        await service.updateOrder(order);
+      } else {
+        await service.createOrder(order);
+      }
       if (mounted) context.pop();
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create order: $e')),
+          SnackBar(content: Text('Failed to save order: $e')),
         );
       }
+    }
+  }
+
+  void _prefillFromExisting(WidgetRef ref) {
+    final existing = widget.existingOrder;
+    if (existing == null) return;
+
+    if (!_cartPrefilled) {
+      ref.watch(productsStreamProvider).whenData((products) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _cartPrefilled) return;
+          setState(() {
+            _cartPrefilled = true;
+            _cart
+              ..clear()
+              ..addAll(existing.items.map((item) {
+                final match = products.where((p) => p.id == item.productId);
+                final product = match.isNotEmpty
+                    ? match.first
+                    : Product(
+                        id: item.productId,
+                        name: item.productName,
+                        price: item.unitPrice,
+                        costPrice: item.unitCostPrice,
+                        stockQuantity: 1 << 30,
+                        createdAt: existing.createdAt,
+                      );
+                return _CartItem(
+                  product: product,
+                  qty: item.quantity,
+                  unitPrice: item.unitPrice,
+                );
+              }));
+          });
+        });
+      });
+    }
+
+    if (!_employeePrefilled && existing.creatorId != null) {
+      ref.watch(employeesStreamProvider).whenData((employees) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _employeePrefilled) return;
+          final match = employees.where((e) => e.id == existing.creatorId);
+          setState(() {
+            _employeePrefilled = true;
+            if (match.isNotEmpty) _selectedEmployee = match.first;
+          });
+        });
+      });
+    } else if (!_employeePrefilled) {
+      _employeePrefilled = true;
+    }
+
+    if (!_wilayaPrefilled && existing.wilayaId != null) {
+      ref.watch(wilayasStreamProvider).whenData((wilayas) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _wilayaPrefilled) return;
+          final match = wilayas.where((w) => w.id == existing.wilayaId);
+          setState(() {
+            _wilayaPrefilled = true;
+            if (match.isNotEmpty) _selectedWilaya = match.first;
+          });
+        });
+      });
+    } else if (!_wilayaPrefilled) {
+      _wilayaPrefilled = true;
+    }
+
+    if (_selectedWilaya != null && !_baladiaPrefilled) {
+      if (existing.baladiaId != null) {
+        ref.watch(baladiasStreamProvider(_selectedWilaya!.id)).whenData(
+            (baladias) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || _baladiaPrefilled) return;
+            final match = baladias.where((b) => b.id == existing.baladiaId);
+            setState(() {
+              _baladiaPrefilled = true;
+              if (match.isNotEmpty) _selectedBaladia = match.first;
+            });
+          });
+        });
+      } else {
+        _baladiaPrefilled = true;
+      }
+    }
+
+    if (_selectedWilaya != null &&
+        !_hubPrefilled &&
+        _deliveryType == DeliveryType.pickupPoint) {
+      if (existing.hubId != null) {
+        ref.watch(hubsStreamProvider(_selectedWilaya!.id)).whenData((hubs) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || _hubPrefilled) return;
+            final match = hubs.where((h) => h.id == existing.hubId);
+            setState(() {
+              _hubPrefilled = true;
+              if (match.isNotEmpty) _selectedHub = match.first;
+            });
+          });
+        });
+      } else {
+        _hubPrefilled = true;
+      }
+    } else if (!_hubPrefilled && _deliveryType != DeliveryType.pickupPoint) {
+      _hubPrefilled = true;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productsStreamProvider);
-    final isAdmin =
-        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final appUser = ref.watch(currentUserProvider).valueOrNull;
+    final isAdmin = appUser?.isAdmin ?? false;
+    final canCreateProduct =
+        appUser?.hasPermission(AppPermission.manageProducts) ?? false;
+    final isEditing = widget.existingOrder != null;
+    _prefillFromExisting(ref);
 
     return PopScope(
       canPop: !_hasUnsavedChanges,
@@ -321,7 +466,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('New Order')),
+        appBar: AppBar(title: Text(isEditing ? 'Edit Order' : 'New Order')),
         body: Form(
           key: _formKey,
           child: ListView(
@@ -412,25 +557,27 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                             style: TextStyle(color: AppColors.textSecondary),
                             textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 16),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              showModalBottomSheet<void>(
-                                context: context,
-                                isScrollControlled: true,
-                                backgroundColor: AppColors.surface,
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(20)),
-                                ),
-                                builder: (_) => _QuickCreateProductSheet(
-                                  onCreated: _onProductSelected,
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.add),
-                            label: const Text('Create New Product'),
-                          ),
+                          if (canCreateProduct) ...[
+                            const SizedBox(height: 16),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                showModalBottomSheet<void>(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: AppColors.surface,
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.vertical(
+                                        top: Radius.circular(20)),
+                                  ),
+                                  builder: (_) => _QuickCreateProductSheet(
+                                    onCreated: _onProductSelected,
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.add),
+                              label: const Text('Create New Product'),
+                            ),
+                          ],
                         ],
                       ),
                     );
@@ -446,6 +593,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                     onRemove: _removeFromCart,
                     subtotal: _subtotal,
                     isAdmin: isAdmin,
+                    canCreateProduct: canCreateProduct,
                   );
                 },
               ),
@@ -505,7 +653,6 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                   );
                 }).toList(),
               ),
-              if (isAdmin) ...[
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _discountCtrl,
@@ -527,7 +674,6 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                 ),
-              ],
               if (_cart.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Container(
@@ -574,7 +720,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                         width: 20,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
-                    : const Text('Create Order'),
+                    : Text(isEditing ? 'Save Changes' : 'Create Order'),
               ),
               const SizedBox(height: 24),
             ],
@@ -597,6 +743,7 @@ class _ProductSection extends StatelessWidget {
     required this.onRemove,
     required this.subtotal,
     required this.isAdmin,
+    required this.canCreateProduct,
   });
 
   final List<Product> products;
@@ -609,6 +756,7 @@ class _ProductSection extends StatelessWidget {
   final ValueChanged<_CartItem> onRemove;
   final double subtotal;
   final bool isAdmin;
+  final bool canCreateProduct;
 
   @override
   Widget build(BuildContext context) {
@@ -653,7 +801,7 @@ class _ProductSection extends StatelessWidget {
             products: products,
             selectedProduct: selectedProduct,
             onSelected: onProductSelected,
-            isAdmin: isAdmin,
+            canCreateProduct: canCreateProduct,
           ),
           if (selectedProduct != null && costPrice != null) ...[
             const SizedBox(height: 6),
@@ -775,28 +923,30 @@ class _EmployeeDropdown extends ConsumerWidget {
     return employeesAsync.when(
       loading: () => const LinearProgressIndicator(),
       error: (e, _) => Text('Error loading employees: $e'),
-      data: (employees) => DropdownButtonFormField<Employee?>(
-        initialValue:
-            selected != null && employees.any((e) => e.id == selected!.id)
-                ? selected
-                : null,
-        decoration: const InputDecoration(
-          labelText: 'Created By',
-          helperText: 'Leave empty to create the order as yourself',
-        ),
-        isExpanded: true,
-        items: [
-          const DropdownMenuItem<Employee?>(
-            value: null,
-            child: Text('Myself (Admin)'),
+      data: (employees) {
+        return DropdownButtonFormField<Employee?>(
+          initialValue:
+              selected != null && employees.any((e) => e.id == selected!.id)
+                  ? selected
+                  : null,
+          decoration: const InputDecoration(
+            labelText: 'Created By',
+            helperText: 'Leave empty to create the order as yourself',
           ),
-          ...employees.map((e) => DropdownMenuItem<Employee?>(
-                value: e,
-                child: Text(e.name),
-              )),
-        ],
-        onChanged: onChanged,
-      ),
+          isExpanded: true,
+          items: [
+            const DropdownMenuItem<Employee?>(
+              value: null,
+              child: Text('Myself (Admin)'),
+            ),
+            ...employees.map((e) => DropdownMenuItem<Employee?>(
+                  value: e,
+                  child: Text(e.name),
+                )),
+          ],
+          onChanged: onChanged,
+        );
+      },
     );
   }
 }
@@ -990,12 +1140,12 @@ class _ProductSearchField extends ConsumerStatefulWidget {
     required this.products,
     required this.selectedProduct,
     required this.onSelected,
-    required this.isAdmin,
+    required this.canCreateProduct,
   });
   final List<Product> products;
   final Product? selectedProduct;
   final ValueChanged<Product?> onSelected;
-  final bool isAdmin;
+  final bool canCreateProduct;
 
   @override
   ConsumerState<_ProductSearchField> createState() =>
@@ -1142,7 +1292,7 @@ class _ProductSearchFieldState extends ConsumerState<_ProductSearchField> {
                           ?.copyWith(color: AppColors.textSecondary),
                     ),
                   ),
-                if (widget.isAdmin) ...[
+                if (widget.canCreateProduct) ...[
                   if (_filtered.isNotEmpty) const Divider(height: 1),
                   InkWell(
                     onTap: _openCreateSheet,

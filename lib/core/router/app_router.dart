@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/analytics/screens/analytics_screen.dart';
+import '../../features/auth/models/app_permission.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/admin_login_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -17,8 +18,13 @@ import '../../features/inventory/screens/inventory_screen.dart';
 import '../../features/inventory/screens/movements_screen.dart';
 import '../../features/inventory/screens/stock_adjustment_screen.dart';
 import '../../features/products/models/product.dart';
+import '../../features/more/screens/directory_screen.dart';
 import '../../features/more/screens/more_screen.dart';
+import '../../features/orders/models/order.dart';
 import '../../features/orders/screens/create_order_screen.dart';
+import '../../features/purchase_lists/screens/purchase_list_detail_screen.dart';
+import '../../features/purchase_lists/screens/purchase_lists_screen.dart';
+import '../../features/purchases/models/purchase.dart';
 import '../../features/purchases/screens/create_purchase_screen.dart';
 import '../../features/purchases/screens/purchase_detail_screen.dart';
 import '../../features/purchases/screens/purchases_screen.dart';
@@ -27,6 +33,7 @@ import '../../features/orders/screens/orders_screen.dart';
 import '../../features/products/screens/add_edit_product_screen.dart';
 import '../../features/products/screens/product_detail_screen.dart';
 import '../../features/products/screens/products_screen.dart';
+import '../../features/purchases/screens/create_purchase_from_order_screen.dart';
 import '../../features/shipping/screens/zr_settings_screen.dart';
 import '../../features/tasks/screens/add_edit_task_screen.dart';
 import '../../features/tasks/screens/tasks_screen.dart';
@@ -86,33 +93,52 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (loc == '/login' || loc == '/splash') return '/dashboard';
       if (loc == '/admin-login' && appUser.isAdmin) return '/dashboard';
 
-      // Employees cannot access admin-only routes → show access denied
+      // Employees cannot access admin-restricted routes unless they've been
+      // granted the matching permission by an admin.
       if (appUser.isEmployee) {
         // Never block the access-denied screen itself
         if (loc.startsWith('/access-denied')) return null;
 
-        const adminOnlyPrefixes = [
-          '/income',
-          '/employees',
-          '/reward-settings',
-          '/zr-settings',
-          '/purchases',
-          '/analytics',
-        ];
-        for (final prefix in adminOnlyPrefixes) {
-          if (loc.startsWith(prefix)) return _denied(loc);
+        // Directory bundles several admin screens in one tabbed view with no
+        // per-tab gating, so it stays admin-only; permitted employees reach
+        // the individual screens directly (e.g. via the More menu).
+        if (loc.startsWith('/directory')) return _denied(loc);
+
+        const permissionByPrefix = {
+          '/income': AppPermission.viewIncome,
+          '/employees': AppPermission.manageEmployees,
+          '/reward-settings': AppPermission.manageEmployees,
+          '/zr-settings': AppPermission.manageZrSettings,
+          '/purchases': AppPermission.managePurchases,
+          '/purchase-lists': AppPermission.managePurchases,
+          '/analytics': AppPermission.viewAnalytics,
+        };
+        for (final entry in permissionByPrefix.entries) {
+          if (loc.startsWith(entry.key) &&
+              !appUser.hasPermission(entry.value)) {
+            return _denied(loc);
+          }
         }
-        // Inventory: no stock adjustments or movement history
-        if (loc == '/inventory/adjust') return _denied(loc);
-        if (loc == '/inventory/movements') return _denied(loc);
-        // Tasks: view-only — block add and edit
-        if (loc == '/tasks/new') return _denied(loc);
-        if (loc.startsWith('/tasks/') && loc.endsWith('/edit')) {
+        // Inventory: stock adjustments or movement history require permission
+        if ((loc == '/inventory/adjust' || loc == '/inventory/movements') &&
+            !appUser.hasPermission(AppPermission.adjustInventory)) {
           return _denied(loc);
         }
-        // Products: view-only — block add and edit
-        if (loc == '/products/new') return _denied(loc);
-        if (loc.startsWith('/products/') && loc.endsWith('/edit')) {
+        // Tasks: add/edit require permission
+        if ((loc == '/tasks/new' ||
+                (loc.startsWith('/tasks/') && loc.endsWith('/edit'))) &&
+            !appUser.hasPermission(AppPermission.manageTasks)) {
+          return _denied(loc);
+        }
+        // Products: add/edit require permission
+        if ((loc == '/products/new' ||
+                (loc.startsWith('/products/') && loc.endsWith('/edit'))) &&
+            !appUser.hasPermission(AppPermission.manageProducts)) {
+          return _denied(loc);
+        }
+        // Orders: Create Purchase from Order requires permission
+        if (loc.endsWith('/create-purchase') &&
+            !appUser.hasPermission(AppPermission.managePurchases)) {
           return _denied(loc);
         }
       }
@@ -156,6 +182,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
+      // Directory (admin only — router blocks employees): groups Products,
+      // Inventory, Employees, Reward Settings & Suppliers under one entry.
+      GoRoute(
+          path: '/directory', builder: (c, s) => const DirectoryScreen()),
+
       // Orders
       GoRoute(
           path: '/orders/new', builder: (c, s) => const CreateOrderScreen()),
@@ -163,6 +194,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/orders/:id',
         builder: (c, s) =>
             OrderDetailScreen(orderId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/orders/:id/create-purchase',
+        builder: (c, s) => CreatePurchaseFromOrderScreen(
+            orderId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/orders/:id/edit',
+        builder: (c, s) => CreateOrderScreen(existingOrder: s.extra as Order?),
       ),
 
       // Products
@@ -213,6 +253,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/purchases/:id',
         builder: (c, s) =>
             PurchaseDetailScreen(purchaseId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/purchases/:id/edit',
+        builder: (c, s) =>
+            CreatePurchaseScreen(existingPurchase: s.extra as Purchase?),
+      ),
+
+      // Purchase Lists (admin only — router blocks employees)
+      GoRoute(
+          path: '/purchase-lists',
+          builder: (c, s) => const PurchaseListsScreen()),
+      GoRoute(
+        path: '/purchase-lists/:id',
+        builder: (c, s) =>
+            PurchaseListDetailScreen(listId: s.pathParameters['id']!),
       ),
 
       // Analytics (admin only — router blocks employees)

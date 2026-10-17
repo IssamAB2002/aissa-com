@@ -10,6 +10,7 @@ class OrderStatusBadge extends StatelessWidget {
 
   Color get _color => switch (status) {
         OrderStatus.pending => AppColors.statusPending,
+        OrderStatus.confirmed => AppColors.statusConfirmed,
         OrderStatus.delivered => AppColors.statusDelivered,
         OrderStatus.cancelled => AppColors.statusCancelled,
       };

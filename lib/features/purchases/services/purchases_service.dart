@@ -14,11 +14,22 @@ class PurchasesService {
       .snapshots()
       .map((s) => s.docs.map(Purchase.fromDoc).toList());
 
+  /// Purchases previously created via "Create Purchase from Order" for
+  /// [orderId], used to block re-running CPO on the same order.
+  Stream<List<Purchase>> streamPurchasesForOrder(String orderId) => _col
+      .where('sourceOrderId', isEqualTo: orderId)
+      .snapshots()
+      .map((s) => s.docs.map(Purchase.fromDoc).toList());
+
   /// Creates the purchase record only — stock is updated on confirm payment.
-  Future<void> createPurchase(Purchase purchase) async {
-    final id = const Uuid().v4();
-    await _col.doc(id).set(purchase.toMap());
-  }
+  Future<void> createPurchase(Purchase purchase) =>
+      _col.doc(purchase.id).set(purchase.toMap());
+
+  /// Overwrites supplier info, items and fees for an existing purchase. Only
+  /// reachable before payment is confirmed / the purchase is received, so
+  /// stock is never affected by this write.
+  Future<void> updatePurchase(Purchase purchase) =>
+      _col.doc(purchase.id).update(purchase.toMap());
 
   /// Writes the per-item stock changes and matching inventory movements for
   /// this purchase. [apply] adds stock (purchase received); otherwise the

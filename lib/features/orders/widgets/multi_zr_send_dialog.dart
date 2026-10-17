@@ -67,8 +67,9 @@ class _MultiZrSendDialogState extends ConsumerState<MultiZrSendDialog> {
   }
 
   Future<void> _run() async {
-    final settings = ref.read(zrSettingsStreamProvider).valueOrNull;
+    final settings = await resolveZrSettings(ref);
     if (settings == null || !settings.isConfigured) {
+      if (!mounted) return;
       Navigator.of(context).pop(const MultiZrSendResult(
         succeeded: 0,
         failed: 0,

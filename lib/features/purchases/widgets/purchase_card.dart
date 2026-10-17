@@ -35,11 +35,18 @@ class PurchaseStatusBadge extends StatelessWidget {
 }
 
 class PurchaseCard extends StatelessWidget {
-  const PurchaseCard(
-      {super.key, required this.purchase, required this.onTap});
+  const PurchaseCard({
+    super.key,
+    required this.purchase,
+    required this.onTap,
+    this.selectionMode = false,
+    this.isSelected = false,
+  });
 
   final Purchase purchase;
   final VoidCallback onTap;
+  final bool selectionMode;
+  final bool isSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +58,12 @@ class PurchaseCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.cardBorder),
+          border: Border.all(
+            color: selectionMode && isSelected
+                ? AppColors.primary
+                : AppColors.cardBorder,
+            width: selectionMode && isSelected ? 1.5 : 1,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -59,12 +71,29 @@ class PurchaseCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '#${purchase.id.substring(0, 8).toUpperCase()}',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontFamily: 'monospace',
-                        letterSpacing: 1,
+                Row(
+                  children: [
+                    if (selectionMode) ...[
+                      Icon(
+                        isSelected
+                            ? Icons.check_circle
+                            : Icons.radio_button_unchecked,
+                        size: 18,
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.textHint,
                       ),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(
+                      '#${purchase.id.substring(0, 8).toUpperCase()}',
+                      style:
+                          Theme.of(context).textTheme.labelSmall?.copyWith(
+                                fontFamily: 'monospace',
+                                letterSpacing: 1,
+                              ),
+                    ),
+                  ],
                 ),
                 PurchaseStatusBadge(status: purchase.status),
               ],
@@ -98,31 +127,45 @@ class PurchaseCard extends StatelessWidget {
                   DateFormat('MMM d, y · h:mm a').format(purchase.createdAt),
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
-                if (purchase.paymentConfirmed)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check_circle_rounded,
-                            size: 12, color: AppColors.success),
-                        SizedBox(width: 4),
-                        Text(
-                          'Paid',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.success,
-                          ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (purchase.plGenerated)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: Tooltip(
+                          message: 'Already in a Purchase List',
+                          child: Icon(Icons.checklist_rtl,
+                              size: 14, color: AppColors.textHint),
                         ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    if (purchase.paymentConfirmed)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle_rounded,
+                                size: 12, color: AppColors.success),
+                            SizedBox(width: 4),
+                            Text(
+                              'Paid',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.success,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ],

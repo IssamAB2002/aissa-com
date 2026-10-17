@@ -13,7 +13,10 @@ final ordersStreamProvider = StreamProvider<List<Order>>((ref) {
   final service = ref.watch(ordersServiceProvider);
   // Employees only see orders they created; admin sees all.
   if (appUser != null && appUser.isEmployee) {
-    return service.streamOrdersByCreator(appUser.uid);
+    final employeeId = appUser.employeeId;
+    return employeeId == null
+        ? Stream.value(const <Order>[])
+        : service.streamOrdersByCreator(employeeId);
   }
   return service.streamOrders();
 });

@@ -29,6 +29,12 @@ class OrdersService {
     await _col.doc(id).set(order.toMap());
   }
 
+  /// Overwrites client info, items, delivery info, discount and fees for an
+  /// existing order. Only reachable before payment is confirmed / the order
+  /// is delivered, so stock is never affected by this write.
+  Future<void> updateOrder(Order order) =>
+      _col.doc(order.id).update(order.toMap());
+
   /// Writes the per-item stock changes and matching inventory movements for
   /// this order. [apply] subtracts stock (order delivered); otherwise the
   /// earlier subtraction is restored.
@@ -170,18 +176,14 @@ class OrdersService {
     // Credit the employee's reward share automatically
     var rewardCredited = false;
     if (order.creatorId != null) {
-      final empSnap = await _db
-          .collection('employees')
-          .where('uid', isEqualTo: order.creatorId)
-          .limit(1)
-          .get();
-      if (empSnap.docs.isNotEmpty) {
-        final empData = empSnap.docs.first.data();
+      final empRef = _db.collection('employees').doc(order.creatorId);
+      final empSnap = await empRef.get();
+      if (empSnap.exists) {
+        final empData = empSnap.data() as Map<String, dynamic>;
         final pct = (empData['benefitPercentage'] as num? ?? 0).toDouble();
         if (pct > 0) {
           final reward = (pct / 100) * order.rewardBasis;
-          batch.update(empSnap.docs.first.reference,
-              {'amountOwed': FieldValue.increment(reward)});
+          batch.update(empRef, {'amountOwed': FieldValue.increment(reward)});
           rewardCredited = true;
         }
       }

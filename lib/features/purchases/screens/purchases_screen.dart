@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../purchase_lists/widgets/generate_pl_dialog.dart';
 import '../models/purchase.dart';
 import '../providers/purchases_provider.dart';
+import '../widgets/multi_status_dialog.dart';
 import '../widgets/purchase_card.dart';
 
 class PurchasesScreen extends ConsumerStatefulWidget {
@@ -20,6 +23,8 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
   String _search = '';
   String _dateFilter = 'all';
   DateTimeRange? _customRange;
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
 
   DateTimeRange? _activeDateRange() {
     final now = DateTime.now();
@@ -67,6 +72,117 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
     }
   }
 
+  /// Purchases eligible for bulk status actions (pending only), narrowed by
+  /// the active search + date filter.
+  List<Purchase> _eligibleForSelect(List<Purchase> purchases) {
+    final activeRange = _activeDateRange();
+    return purchases.where((p) {
+      final matchStatus = p.status == PurchaseStatus.pending;
+      final matchSearch = _search.isEmpty ||
+          (p.supplierName ?? '').toLowerCase().contains(_search.toLowerCase());
+      final matchDate = activeRange == null ||
+          (!p.createdAt.isBefore(activeRange.start) &&
+              p.createdAt.isBefore(activeRange.end));
+      return matchStatus && matchSearch && matchDate;
+    }).toList();
+  }
+
+  void _toggleSelectAll(List<Purchase> eligible) {
+    final allSelected = eligible.isNotEmpty &&
+        eligible.every((p) => _selectedIds.contains(p.id));
+    setState(() {
+      if (allSelected) {
+        _selectedIds.removeAll(eligible.map((p) => p.id));
+      } else {
+        _selectedIds.addAll(eligible.map((p) => p.id));
+      }
+    });
+  }
+
+  Future<void> _runBulkAction(MultiPurchaseAction action) async {
+    final allPurchases = ref.read(purchasesStreamProvider).valueOrNull ?? [];
+    final selected =
+        allPurchases.where((p) => _selectedIds.contains(p.id)).toList();
+    if (selected.isEmpty) return;
+
+    final actionLabel = action == MultiPurchaseAction.markReceived
+        ? 'Mark as Received'
+        : 'Confirm Payment';
+    final ok = await AppConfirmDialog.show(
+      context,
+      icon: Icons.price_check,
+      iconColor: AppColors.primary,
+      confirmColor: AppColors.primary,
+      title: actionLabel,
+      message: 'This will update ${selected.length} purchase(s). Continue?',
+      confirmLabel: 'Continue',
+    );
+    if (ok != true || !mounted) return;
+
+    final service = ref.read(purchasesServiceProvider);
+    final result = await MultiStatusDialog.show(
+      context,
+      purchases: selected,
+      action: action,
+      service: service,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _selectMode = false;
+      _selectedIds.clear();
+    });
+
+    await AppConfirmDialog.showAlert(
+      context,
+      icon: result.failed > 0
+          ? Icons.error_outline
+          : Icons.check_circle_outline,
+      iconColor: result.failed > 0 ? AppColors.error : AppColors.success,
+      title: 'Update Complete',
+      message: '${result.succeeded} purchase(s) updated'
+          '${result.failed > 0 ? ', ${result.failed} failed' : ''}.',
+    );
+  }
+
+  Future<void> _startGeneratePl() async {
+    final allPurchases = ref.read(purchasesStreamProvider).valueOrNull ?? [];
+    final eligible = allPurchases
+        .where((p) => p.status == PurchaseStatus.pending && !p.plGenerated)
+        .toList();
+
+    if (eligible.isEmpty) {
+      await AppConfirmDialog.showAlert(
+        context,
+        icon: Icons.info_outline,
+        iconColor: AppColors.textHint,
+        title: 'Nothing to Generate',
+        message: 'No pending purchases are available to add to a Purchase '
+            'List right now.',
+      );
+      return;
+    }
+
+    final list =
+        await GeneratePlDialog.show(context, eligiblePurchases: eligible);
+    if (list == null || !mounted) return;
+
+    final viewIt = await AppConfirmDialog.show(
+      context,
+      icon: Icons.checklist_outlined,
+      iconColor: AppColors.success,
+      confirmColor: AppColors.primary,
+      title: 'Purchase List Generated',
+      message: '${list.totalProducts} product(s) across ${list.supplierCount} '
+          'supplier(s). View it now?',
+      confirmLabel: 'View',
+      cancelLabel: 'Later',
+    );
+    if (viewIt == true && mounted) {
+      context.push('/purchase-lists/${list.id}');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final purchasesAsync = ref.watch(purchasesStreamProvider);
@@ -82,18 +198,59 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/purchases/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('New Purchase'),
-      ),
+      floatingActionButton: _selectMode
+          ? (_selectedIds.isEmpty
+              ? null
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FloatingActionButton.extended(
+                      heroTag: 'bulk-received',
+                      onPressed: () =>
+                          _runBulkAction(MultiPurchaseAction.markReceived),
+                      icon: const Icon(Icons.inventory_2_outlined),
+                      label: Text('Mark Received (${_selectedIds.length})'),
+                    ),
+                    const SizedBox(height: 12),
+                    FloatingActionButton.extended(
+                      heroTag: 'bulk-confirm-payment',
+                      onPressed: () =>
+                          _runBulkAction(MultiPurchaseAction.confirmPayment),
+                      icon: const Icon(Icons.price_check),
+                      label: Text('Confirm Payment (${_selectedIds.length})'),
+                    ),
+                  ],
+                ))
+          : FloatingActionButton.extended(
+              onPressed: () => context.push('/purchases/new'),
+              icon: const Icon(Icons.add),
+              label: const Text('New Purchase'),
+            ),
       body: Column(
         children: [
           _SearchBar(onChanged: (v) => setState(() => _search = v)),
-          _FilterChips(
-            selected: _filter,
-            onSelected: (s) => setState(() => _filter = s),
-          ),
+          if (_selectMode)
+            _SelectModeHeader(
+              allSelected: () {
+                final eligible =
+                    _eligibleForSelect(purchasesAsync.valueOrNull ?? []);
+                return eligible.isNotEmpty &&
+                    eligible.every((p) => _selectedIds.contains(p.id));
+              }(),
+              onSelectAll: () => _toggleSelectAll(
+                  _eligibleForSelect(purchasesAsync.valueOrNull ?? [])),
+              onCancel: () => setState(() {
+                _selectMode = false;
+                _selectedIds.clear();
+              }),
+            )
+          else
+            _FilterChips(
+              selected: _filter,
+              onSelected: (s) => setState(() => _filter = s),
+              onSelectMode: () => setState(() => _selectMode = true),
+              onGeneratePl: _startGeneratePl,
+            ),
           _DateFilterChips(
             selected: _dateFilter,
             onSelected: (v) => setState(() => _dateFilter = v),
@@ -105,19 +262,21 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
                   const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (purchases) {
-                final activeRange = _activeDateRange();
-                final filtered = purchases.where((p) {
-                  final matchStatus =
-                      _filter == null || p.status == _filter;
-                  final matchSearch = _search.isEmpty ||
-                      (p.supplierName ?? '')
-                          .toLowerCase()
-                          .contains(_search.toLowerCase());
-                  final matchDate = activeRange == null ||
-                      (!p.createdAt.isBefore(activeRange.start) &&
-                          p.createdAt.isBefore(activeRange.end));
-                  return matchStatus && matchSearch && matchDate;
-                }).toList();
+                final filtered = _selectMode
+                    ? _eligibleForSelect(purchases)
+                    : purchases.where((p) {
+                        final activeRange = _activeDateRange();
+                        final matchStatus =
+                            _filter == null || p.status == _filter;
+                        final matchSearch = _search.isEmpty ||
+                            (p.supplierName ?? '')
+                                .toLowerCase()
+                                .contains(_search.toLowerCase());
+                        final matchDate = activeRange == null ||
+                            (!p.createdAt.isBefore(activeRange.start) &&
+                                p.createdAt.isBefore(activeRange.end));
+                        return matchStatus && matchSearch && matchDate;
+                      }).toList();
 
                 if (filtered.isEmpty) {
                   return RefreshIndicator(
@@ -127,13 +286,21 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         child: SizedBox(
                           height: constraints.maxHeight,
-                          child: EmptyState(
-                            icon: Icons.shopping_cart_outlined,
-                            title: 'No purchases found',
-                            subtitle: 'Create a purchase to restock products.',
-                            action: () => context.push('/purchases/new'),
-                            actionLabel: 'Create Purchase',
-                          ),
+                          child: _selectMode
+                              ? const EmptyState(
+                                  icon: Icons.price_check,
+                                  title: 'No purchases to select',
+                                  subtitle:
+                                      'No pending purchases match this date range.',
+                                )
+                              : EmptyState(
+                                  icon: Icons.shopping_cart_outlined,
+                                  title: 'No purchases found',
+                                  subtitle:
+                                      'Create a purchase to restock products.',
+                                  action: () => context.push('/purchases/new'),
+                                  actionLabel: 'Create Purchase',
+                                ),
                         ),
                       ),
                     ),
@@ -145,11 +312,26 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                     itemCount: filtered.length,
-                    itemBuilder: (context, i) => PurchaseCard(
-                      purchase: filtered[i],
-                      onTap: () =>
-                          context.push('/purchases/${filtered[i].id}'),
-                    ),
+                    itemBuilder: (context, i) {
+                      final purchase = filtered[i];
+                      if (_selectMode) {
+                        return PurchaseCard(
+                          purchase: purchase,
+                          selectionMode: true,
+                          isSelected: _selectedIds.contains(purchase.id),
+                          onTap: () => setState(() {
+                            if (!_selectedIds.remove(purchase.id)) {
+                              _selectedIds.add(purchase.id);
+                            }
+                          }),
+                        );
+                      }
+                      return PurchaseCard(
+                        purchase: purchase,
+                        onTap: () =>
+                            context.push('/purchases/${purchase.id}'),
+                      );
+                    },
                   ),
                 );
               },
@@ -180,10 +362,57 @@ class _SearchBar extends StatelessWidget {
   }
 }
 
+class _SelectModeHeader extends StatelessWidget {
+  const _SelectModeHeader({
+    required this.allSelected,
+    required this.onSelectAll,
+    required this.onCancel,
+  });
+  final bool allSelected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Select pending purchases to update',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onSelectAll,
+            child: Text(allSelected ? 'Deselect All' : 'Select All'),
+          ),
+          TextButton(
+            onPressed: onCancel,
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FilterChips extends StatelessWidget {
-  const _FilterChips({required this.selected, required this.onSelected});
+  const _FilterChips({
+    required this.selected,
+    required this.onSelected,
+    required this.onSelectMode,
+    required this.onGeneratePl,
+  });
   final PurchaseStatus? selected;
   final ValueChanged<PurchaseStatus?> onSelected;
+  final VoidCallback onSelectMode;
+  final VoidCallback onGeneratePl;
 
   @override
   Widget build(BuildContext context) {
@@ -208,7 +437,61 @@ class _FilterChips extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(width: 4),
+          _ActionChip(
+            label: 'Select',
+            icon: Icons.checklist,
+            onTap: onSelectMode,
+          ),
+          const SizedBox(width: 8),
+          _ActionChip(
+            label: 'Generate PL',
+            icon: Icons.receipt_long_outlined,
+            onTap: onGeneratePl,
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  const _ActionChip(
+      {required this.label, required this.icon, required this.onTap});
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.primary, width: 1.5),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: AppColors.primary),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

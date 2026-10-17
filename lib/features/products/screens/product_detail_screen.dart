@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_confirm_dialog.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../providers/products_provider.dart';
 import '../models/product.dart';
@@ -28,8 +29,11 @@ class ProductDetailScreen extends ConsumerWidget {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
         }
-        final isAdmin =
-            ref.read(currentUserProvider).valueOrNull?.isAdmin ?? false;
+        final isAdmin = ref
+                .read(currentUserProvider)
+                .valueOrNull
+                ?.hasPermission(AppPermission.manageProducts) ??
+            false;
         return _ProductDetailView(
           product: products[idx],
           service: ref.read(productsServiceProvider),

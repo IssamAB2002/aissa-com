@@ -1,10 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../firebase_options.dart';
 import '../models/app_user.dart';
 import 'session_manager.dart';
 
@@ -63,6 +61,9 @@ class AuthService {
           createdAt: m['createdAt'] != null
               ? (m['createdAt'] as Timestamp).toDate()
               : DateTime.now(),
+          permissions:
+              ((m['permissions'] as List?)?.cast<String>() ?? const [])
+                  .toSet(),
         );
         // Write document under the correct UID key and remove the mismatched one.
         await _firestore.collection('users').doc(uid).set(profile.toMap());
@@ -143,40 +144,11 @@ class AuthService {
     return user;
   }
 
-  // Creates a Firebase Auth account for an employee without signing out the admin.
-  // Uses a temporary secondary Firebase app instance.
-  Future<String> createEmployeeAccount({
-    required String email,
-    required String password,
-    required String name,
-    required String employeeId,
-  }) async {
-    final secondaryApp = await Firebase.initializeApp(
-      name: 'emp_${DateTime.now().millisecondsSinceEpoch}',
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    try {
-      final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
-      final credential =
-          await secondaryAuth.createUserWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
-      final uid = credential.user!.uid;
-      final user = AppUser(
-        uid: uid,
-        email: email.trim(),
-        displayName: name.trim(),
-        role: UserRole.employee,
-        employeeId: employeeId,
-        createdAt: DateTime.now(),
-      );
-      await _firestore.collection('users').doc(uid).set(user.toMap());
-      return uid;
-    } finally {
-      await secondaryApp.delete();
-    }
-  }
+  Future<void> updateUserPermissions(String uid, Set<String> permissions) =>
+      _firestore
+          .collection('users')
+          .doc(uid)
+          .update({'permissions': permissions.toList()});
 
   Future<void> signOut() async {
     await _session.clearSession();

@@ -22,9 +22,6 @@ class EmployeesService {
             doc.data() as Map<String, dynamic>);
       });
 
-  Future<void> createEmployee(Employee employee) =>
-      _col.doc(employee.id).set(employee.toMap());
-
   Future<void> updateEmployee(
           String id, Map<String, dynamic> data) =>
       _col.doc(id).update(data);

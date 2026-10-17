@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum OrderStatus { pending, delivered, cancelled }
+enum OrderStatus { pending, confirmed, delivered, cancelled }
 
 extension OrderStatusX on OrderStatus {
   String get label => switch (this) {
         OrderStatus.pending => 'Pending',
+        OrderStatus.confirmed => 'Confirmed',
         OrderStatus.delivered => 'Delivered',
         OrderStatus.cancelled => 'Cancelled',
       };

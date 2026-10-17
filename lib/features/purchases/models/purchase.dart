@@ -43,6 +43,7 @@ class PurchaseItem {
 class Purchase {
   const Purchase({
     required this.id,
+    this.supplierId,
     this.supplierName,
     required this.items,
     required this.total,
@@ -53,9 +54,13 @@ class Purchase {
     this.updatedAt,
     this.paymentConfirmed = false,
     this.stockApplied = false,
+    this.sourceOrderId,
+    this.plGenerated = false,
+    this.plId,
   });
 
   final String id;
+  final String? supplierId;
   final String? supplierName;
   final List<PurchaseItem> items;
   final double total;
@@ -66,10 +71,18 @@ class Purchase {
   final DateTime? updatedAt;
   final bool paymentConfirmed;
   final bool stockApplied;
+  /// The order this purchase was generated from via "Create Purchase from
+  /// Order", if any. Null for purchases created manually.
+  final String? sourceOrderId;
+  /// Whether this purchase's items were already pulled into a Purchase
+  /// List — prevents the same items being requested twice.
+  final bool plGenerated;
+  final String? plId;
 
   double get itemsSubtotal => items.fold(0.0, (s, i) => s + i.subtotal);
 
   Map<String, dynamic> toMap() => {
+        'supplierId': supplierId,
         'supplierName': supplierName,
         'items': items.map((e) => e.toMap()).toList(),
         'total': total,
@@ -81,12 +94,16 @@ class Purchase {
             updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
         'paymentConfirmed': paymentConfirmed,
         'stockApplied': stockApplied,
+        'sourceOrderId': sourceOrderId,
+        'plGenerated': plGenerated,
+        'plId': plId,
       };
 
   factory Purchase.fromDoc(DocumentSnapshot doc) {
     final m = doc.data() as Map<String, dynamic>;
     return Purchase(
       id: doc.id,
+      supplierId: m['supplierId'] as String?,
       supplierName: m['supplierName'] as String?,
       items: (m['items'] as List)
           .map((e) => PurchaseItem.fromMap(e as Map<String, dynamic>))
@@ -102,6 +119,9 @@ class Purchase {
       // confirmPayment, so treat confirmed docs as already applied.
       stockApplied: m['stockApplied'] as bool? ??
           (m['paymentConfirmed'] as bool? ?? false),
+      sourceOrderId: m['sourceOrderId'] as String?,
+      plGenerated: m['plGenerated'] as bool? ?? false,
+      plId: m['plId'] as String?,
     );
   }
 
@@ -114,6 +134,7 @@ class Purchase {
   }) =>
       Purchase(
         id: id,
+        supplierId: supplierId,
         supplierName: supplierName,
         items: items,
         total: total ?? this.total,
@@ -124,5 +145,8 @@ class Purchase {
         updatedAt: updatedAt ?? this.updatedAt,
         paymentConfirmed: paymentConfirmed,
         stockApplied: stockApplied,
+        sourceOrderId: sourceOrderId,
+        plGenerated: plGenerated,
+        plId: plId,
       );
 }

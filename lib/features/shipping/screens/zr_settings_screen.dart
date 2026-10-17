@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../auth/services/session_manager.dart';
 import '../models/zr_settings.dart';
 import '../providers/shipping_reference_provider.dart';
 
@@ -31,12 +32,12 @@ class _ZrSettingsScreenState extends ConsumerState<ZrSettingsScreen> {
   Future<void> _saveSettings() async {
     setState(() => _saving = true);
     try {
+      final secretKey = _secretKeyCtrl.text.trim();
+      final tenantId = _tenantIdCtrl.text.trim();
       await ref.read(shippingReferenceServiceProvider).saveZrSettings(
-            ZrSettings(
-              secretKey: _secretKeyCtrl.text.trim(),
-              tenantId: _tenantIdCtrl.text.trim(),
-            ),
+            ZrSettings(secretKey: secretKey, tenantId: tenantId),
           );
+      await ref.read(sessionManagerProvider).saveZrSecrets(secretKey, tenantId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('ZR Express settings saved.')),

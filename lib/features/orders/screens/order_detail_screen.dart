@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_confirm_dialog.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../purchases/providers/purchases_provider.dart';
 import '../../shipping/providers/shipping_reference_provider.dart';
 import '../../shipping/services/zr_client.dart';
 import '../../shipping/models/wilaya.dart';
@@ -21,8 +24,10 @@ class OrderDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ordersAsync = ref.watch(ordersStreamProvider);
-    final isAdmin =
-        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final appUser = ref.watch(currentUserProvider).valueOrNull;
+    final isAdmin = appUser?.isAdmin ?? false;
+    final canCreatePurchase =
+        appUser?.hasPermission(AppPermission.managePurchases) ?? false;
     return ordersAsync.when(
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -33,10 +38,16 @@ class OrderDetailScreen extends ConsumerWidget {
           return const Scaffold(
               body: Center(child: Text('Order not found')));
         }
+        final order = orders[idx];
+        final canEdit = isAdmin ||
+            (appUser?.employeeId != null &&
+                appUser!.employeeId == order.creatorId);
         return _OrderDetailView(
-          order: orders[idx],
+          order: order,
           service: ref.read(ordersServiceProvider),
           isAdmin: isAdmin,
+          canCreatePurchase: canCreatePurchase,
+          canEdit: canEdit,
         );
       },
     );
@@ -44,11 +55,18 @@ class OrderDetailScreen extends ConsumerWidget {
 }
 
 class _OrderDetailView extends StatelessWidget {
-  const _OrderDetailView(
-      {required this.order, required this.service, required this.isAdmin});
+  const _OrderDetailView({
+    required this.order,
+    required this.service,
+    required this.isAdmin,
+    required this.canCreatePurchase,
+    required this.canEdit,
+  });
   final Order order;
   final OrdersService service;
   final bool isAdmin;
+  final bool canCreatePurchase;
+  final bool canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -56,33 +74,26 @@ class _OrderDetailView extends StatelessWidget {
       appBar: AppBar(
         title: Text('#${order.id.substring(0, 8).toUpperCase()}'),
         actions: [
-          if (isAdmin)
+          if (canEdit)
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'Edit Order',
               onPressed: () {
-                if (order.paymentConfirmed) {
+                if (order.paymentConfirmed ||
+                    order.status == OrderStatus.delivered ||
+                    order.zrSubmitted) {
                   AppConfirmDialog.showAlert(
                     context,
                     icon: Icons.lock_outline,
                     iconColor: AppColors.error,
                     title: 'Editing Not Allowed',
                     message:
-                        'This order has been paid and delivered.\nNo further edits are permitted.',
+                        "This Order can't be modified since it's already "
+                        'submitted to ZR Express, Delivered or Payment Confirmed.',
                   );
                   return;
                 }
-                showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: AppColors.surface,
-                  shape: const RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(20)),
-                  ),
-                  builder: (_) =>
-                      _EditOrderSheet(order: order, service: service),
-                );
+                context.push('/orders/${order.id}/edit', extra: order);
               },
             ),
           IconButton(
@@ -108,6 +119,10 @@ class _OrderDetailView extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _InfoCard(order: order, isAdmin: isAdmin),
+          if (canCreatePurchase) ...[
+            const SizedBox(height: 12),
+            _CreatePurchaseCard(order: order),
+          ],
           const SizedBox(height: 12),
           _ItemsCard(order: order),
           const SizedBox(height: 12),
@@ -148,7 +163,11 @@ class _InfoCard extends StatelessWidget {
           const SizedBox(height: 12),
           _Row(label: 'Name', value: order.customerName),
           if (order.customerPhone != null)
-            _Row(label: 'Phone', value: order.customerPhone!),
+            _Row(
+              label: 'Phone',
+              value: order.customerPhone!,
+              onTap: () => _callPhone(context, order.customerPhone!),
+            ),
           if (order.address != null && order.address!.isNotEmpty)
             _Row(label: 'Address', value: order.address!),
           if (order.city != null && order.city!.isNotEmpty)
@@ -184,6 +203,58 @@ class _InfoCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _CreatePurchaseCard extends ConsumerWidget {
+  const _CreatePurchaseCard({required this.order});
+  final Order order;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final purchasesAsync = ref.watch(purchasesForOrderProvider(order.id));
+    final existing = purchasesAsync.valueOrNull ?? [];
+
+    return _Card(
+      child: existing.isEmpty
+          ? SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => context.push('/orders/${order.id}/create-purchase'),
+                child: const Text('Create Purchase'),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Purchase${existing.length > 1 ? 's' : ''} Created',
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                for (final purchase in existing)
+                  InkWell(
+                    onTap: () => context.push('/purchases/${purchase.id}'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.receipt_long_outlined,
+                              size: 18, color: AppColors.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              purchase.supplierName ?? 'Supplier',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right,
+                              color: AppColors.textHint),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }
@@ -425,8 +496,9 @@ class _ZrExpressCardState extends ConsumerState<_ZrExpressCard> {
   bool _busy = false;
 
   Future<void> _send() async {
-    final settings = ref.read(zrSettingsStreamProvider).valueOrNull;
+    final settings = await resolveZrSettings(ref);
     if (settings == null || !settings.isConfigured) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text(
             'ZR Express is not configured yet — set it up in ZR Settings.'),
@@ -485,7 +557,7 @@ class _ZrExpressCardState extends ConsumerState<_ZrExpressCard> {
     );
     if (ok != true || !mounted) return;
 
-    final settings = ref.read(zrSettingsStreamProvider).valueOrNull;
+    final settings = await resolveZrSettings(ref);
     if (settings == null || !settings.isConfigured) return;
 
     setState(() => _busy = true);
@@ -627,12 +699,21 @@ class _Card extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  const _Row({required this.label, required this.value});
+  const _Row({required this.label, required this.value, this.onTap});
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final valueText = Text(
+      value,
+      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: onTap != null ? AppColors.primary : null,
+            fontWeight: onTap != null ? FontWeight.w600 : null,
+            decoration: onTap != null ? TextDecoration.underline : null,
+          ),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -644,10 +725,26 @@ class _Row extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodyMedium),
           ),
           Expanded(
-              child: Text(value,
-                  style: Theme.of(context).textTheme.bodyLarge)),
+            child: onTap != null
+                ? GestureDetector(onTap: onTap, child: valueText)
+                : valueText,
+          ),
         ],
       ),
+    );
+  }
+}
+
+Future<void> _callPhone(BuildContext context, String phone) async {
+  final uri = Uri(scheme: 'tel', path: phone);
+  final launched = await launchUrl(uri);
+  if (!launched && context.mounted) {
+    AppConfirmDialog.showAlert(
+      context,
+      icon: Icons.phone_disabled_outlined,
+      iconColor: AppColors.error,
+      title: 'Can\'t Make Call',
+      message: 'No phone app is available to dial $phone.',
     );
   }
 }
@@ -828,212 +925,3 @@ class _PaymentCardState extends State<_PaymentCard> {
   }
 }
 
-class _EditOrderSheet extends StatefulWidget {
-  const _EditOrderSheet({required this.order, required this.service});
-  final Order order;
-  final OrdersService service;
-
-  @override
-  State<_EditOrderSheet> createState() => _EditOrderSheetState();
-}
-
-class _EditOrderSheetState extends State<_EditOrderSheet> {
-  late final _discountCtrl = TextEditingController(
-    text: widget.order.discountAmount > 0
-        ? widget.order.discountAmount.toStringAsFixed(2)
-        : '',
-  );
-  late final _feesCtrl = TextEditingController(
-    text: widget.order.fees > 0
-        ? widget.order.fees.toStringAsFixed(2)
-        : '',
-  );
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _discountCtrl.addListener(_onChanged);
-    _feesCtrl.addListener(_onChanged);
-  }
-
-  void _onChanged() => setState(() {});
-
-  @override
-  void dispose() {
-    _discountCtrl.dispose();
-    _feesCtrl.dispose();
-    super.dispose();
-  }
-
-  double get _discountAmount =>
-      double.tryParse(_discountCtrl.text.trim()) ?? 0.0;
-  double get _fees => double.tryParse(_feesCtrl.text.trim()) ?? 0.0;
-  double get _newTotal => widget.order.itemsSubtotal - _discountAmount;
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await widget.service.updateFinance(
-        id: widget.order.id,
-        discountAmount: _discountAmount,
-        total: _newTotal,
-        fees: _fees,
-      );
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update: $e')),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-          24, 12, 24, MediaQuery.of(context).viewInsets.bottom + 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.cardBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text('Edit Order', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 4),
-          Text(
-            'Adjust discount and fees for this order.',
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _discountCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Discount (DZD)',
-              prefixText: 'DZD ',
-            ),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _feesCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Fees (DZD)',
-              prefixText: 'DZD ',
-              helperText: 'Added to net profit, e.g. service or handling fee.',
-            ),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.cardBorder),
-            ),
-            child: Column(
-              children: [
-                _EditSummaryRow(
-                  label: 'Products',
-                  value: 'DZD ${widget.order.itemsSubtotal.toStringAsFixed(2)}',
-                ),
-                if (_discountAmount != 0) ...[
-                  const SizedBox(height: 4),
-                  _EditSummaryRow(
-                    label: 'Discount',
-                    value: '- DZD ${_discountAmount.toStringAsFixed(2)}',
-                    valueColor: AppColors.error,
-                  ),
-                ],
-                if (_fees != 0) ...[
-                  const SizedBox(height: 4),
-                  _EditSummaryRow(
-                    label: 'Fees (added to net profit)',
-                    value: '+ DZD ${_fees.toStringAsFixed(2)}',
-                    valueColor: AppColors.success,
-                  ),
-                ],
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Divider(height: 1),
-                ),
-                _EditSummaryRow(
-                  label: 'New Total',
-                  value: 'DZD ${_newTotal.toStringAsFixed(2)}',
-                  bold: true,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Text('Save Changes'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EditSummaryRow extends StatelessWidget {
-  const _EditSummaryRow({
-    required this.label,
-    required this.value,
-    this.valueColor,
-    this.bold = false,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-  final bool bold;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: bold ? AppColors.textPrimary : AppColors.textSecondary,
-                fontWeight: bold ? FontWeight.w700 : null,
-              ),
-        ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
-                color: valueColor,
-              ),
-        ),
-      ],
-    );
-  }
-}

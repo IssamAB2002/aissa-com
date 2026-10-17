@@ -21,13 +21,12 @@ double _calcTotalOrderAmount(List<Order> orders, String period) {
 }
 
 ({int count, double total}) _employeeStats(
-    List<Order> orders, String? uid, String period) {
-  if (uid == null) return (count: 0, total: 0.0);
+    List<Order> orders, String employeeId, String period) {
   final now = DateTime.now();
   final matched = orders
       .where((o) =>
           o.paymentConfirmed &&
-          o.creatorId == uid &&
+          o.creatorId == employeeId &&
           _inPeriod(o.createdAt, now, period))
       .toList();
   return (
@@ -56,7 +55,11 @@ bool _inPeriod(DateTime d, DateTime now, String period) {
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 class RewardSettingsScreen extends ConsumerStatefulWidget {
-  const RewardSettingsScreen({super.key});
+  const RewardSettingsScreen({super.key, this.embedded = false});
+
+  /// True when shown as a tab inside the Directory screen — suppresses this
+  /// screen's own app bar so it isn't stacked under Directory's.
+  final bool embedded;
 
   @override
   ConsumerState<RewardSettingsScreen> createState() =>
@@ -87,11 +90,13 @@ class _RewardSettingsScreenState extends ConsumerState<RewardSettingsScreen> {
     final selectedEmp =
         _selectedId == null ? null : employees.where((e) => e.id == _selectedId).firstOrNull;
     final selStats =
-        selectedEmp != null ? _employeeStats(orders, selectedEmp.uid, _period) : null;
+        selectedEmp != null ? _employeeStats(orders, selectedEmp.id, _period) : null;
     final totalRevenue = _calcTotalOrderAmount(orders, _period);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Reward Settings')),
+      appBar: widget.embedded
+          ? null
+          : AppBar(title: const Text('Reward Settings')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -576,9 +581,8 @@ class _EmployeePctTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stats = _employeeStats(orders, employee.uid, period);
-    final displayCount =
-        employee.uid != null ? stats.count : employee.confirmedOrders;
+    final stats = _employeeStats(orders, employee.id, period);
+    final displayCount = stats.count;
     final amount = employee.rewardAmount(stats.total);
 
     return Container(

@@ -7,17 +7,24 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// Firebase Auth normally persists its own session, but if the platform drops
 /// it, this silently re-authenticates with the credentials saved (in the
 /// OS keystore) at the last sign-in. Opening the app renews the window, so
-/// the user is only asked to log in again after a full week of not using it.
+/// the user is only asked to log in again after 10 days of not using it.
+///
+/// Also caches the ZR Express secrets (secret key / tenant id) for the same
+/// window, so the shipping screens don't need to wait on a Firestore read
+/// before they can send a parcel. Both are cleared together on sign-out or
+/// expiry.
 class SessionManager {
   SessionManager(this._storage);
 
   final FlutterSecureStorage _storage;
 
-  static const sessionDuration = Duration(days: 7);
+  static const sessionDuration = Duration(days: 10);
 
   static const _kEmail = 'session_email';
   static const _kPassword = 'session_password';
   static const _kLoginAt = 'session_login_at';
+  static const _kZrSecretKey = 'session_zr_secret_key';
+  static const _kZrTenantId = 'session_zr_tenant_id';
 
   Future<void> saveSession(String email, String password) async {
     await _storage.write(key: _kEmail, value: email);
@@ -25,18 +32,34 @@ class SessionManager {
     await _refreshTimestamp();
   }
 
+  Future<void> saveZrSecrets(String secretKey, String tenantId) async {
+    await _storage.write(key: _kZrSecretKey, value: secretKey);
+    await _storage.write(key: _kZrTenantId, value: tenantId);
+  }
+
+  /// Returns the cached ZR secrets, or null if none are saved.
+  Future<({String secretKey, String tenantId})?> readZrSecrets() async {
+    final secretKey = await _storage.read(key: _kZrSecretKey);
+    final tenantId = await _storage.read(key: _kZrTenantId);
+    if (secretKey == null || tenantId == null) return null;
+    return (secretKey: secretKey, tenantId: tenantId);
+  }
+
   Future<void> clearSession() async {
     await _storage.delete(key: _kEmail);
     await _storage.delete(key: _kPassword);
     await _storage.delete(key: _kLoginAt);
+    await _storage.delete(key: _kZrSecretKey);
+    await _storage.delete(key: _kZrTenantId);
   }
 
   Future<void> _refreshTimestamp() =>
       _storage.write(key: _kLoginAt, value: DateTime.now().toIso8601String());
 
   /// Called once on app start, before the router reads the auth state.
-  /// Restores the session if Firebase lost it, or expires it after a week.
-  /// Never throws — on any failure the user simply sees the login screen.
+  /// Restores the session if Firebase lost it, or expires it after
+  /// [sessionDuration]. Never throws — on any failure the user simply sees
+  /// the login screen.
   Future<void> restoreSession(FirebaseAuth auth) async {
     try {
       final email = await _storage.read(key: _kEmail);
@@ -72,7 +95,7 @@ class SessionManager {
         }
       }
 
-      // Rolling window: each app open within the week renews it.
+      // Rolling window: each app open within the session duration renews it.
       await _refreshTimestamp();
     } catch (_) {
       // Storage failure — fall back to whatever Firebase has.

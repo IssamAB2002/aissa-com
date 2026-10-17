@@ -475,7 +475,7 @@ class DashboardScreen extends ConsumerWidget {
                 final employeeRewards = employees.map((emp) {
                   final benefits = _calcEmployeeBenefits(
                       ordersAsync.valueOrNull ?? [],
-                      emp.uid,
+                      emp.id,
                       settings.benefitPeriod);
                   return (
                     employee: emp,

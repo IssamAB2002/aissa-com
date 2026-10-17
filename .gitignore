@@ -47,3 +47,12 @@ ZR_EXPRESS_INTEGRATION_PLAN.md
 prompt.md
 Rates_ZR_EXPRESS.md
 PROJECT_DESCRIPTION.md
+MULT-CP_FEATURE.md
+
+# Admin scripts
+scripts/node_modules/
+scripts/serviceAccountKey.json
+scripts/*.report.json
+
+# Firebase
+.firebase/

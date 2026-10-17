@@ -37,6 +37,13 @@ final firebaseAuthStateProvider = StreamProvider<User?>((ref) async* {
   yield* auth.authStateChanges();
 });
 
+/// Looks up any user's profile (including their granted permissions) by uid
+/// — used by admins managing another employee's access.
+final userProfileProvider =
+    StreamProvider.family<AppUser?, String>((ref, uid) {
+  return ref.read(authServiceProvider).userProfileStream(uid);
+});
+
 final currentUserProvider = StreamProvider<AppUser?>((ref) {
   if (kDebugMode) {
     final mock = ref.watch(mockUserProvider);

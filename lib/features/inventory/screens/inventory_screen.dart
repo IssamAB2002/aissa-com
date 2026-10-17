@@ -5,12 +5,17 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/stat_card.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../products/providers/products_provider.dart';
 import '../widgets/inventory_item_tile.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
-  const InventoryScreen({super.key});
+  const InventoryScreen({super.key, this.embedded = false});
+
+  /// True when shown as a tab inside the Directory screen — suppresses this
+  /// screen's own app bar so it isn't stacked under Directory's.
+  final bool embedded;
 
   @override
   ConsumerState<InventoryScreen> createState() =>
@@ -29,30 +34,35 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productsStreamProvider);
-    final isAdmin =
-        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final isAdmin = ref
+            .watch(currentUserProvider)
+            .valueOrNull
+            ?.hasPermission(AppPermission.adjustInventory) ??
+        false;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Inventory'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
-        actions: [
-          if (isAdmin)
-            IconButton(
-              icon: const Icon(Icons.history),
-              tooltip: 'Movements',
-              onPressed: () => context.push('/inventory/movements'),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('Inventory'),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => context.pop(),
+              ),
+              actions: [
+                if (isAdmin)
+                  IconButton(
+                    icon: const Icon(Icons.history),
+                    tooltip: 'Movements',
+                    onPressed: () => context.push('/inventory/movements'),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.account_circle_outlined),
+                  tooltip: 'Profile',
+                  onPressed: () => Scaffold.of(context).openEndDrawer(),
+                ),
+              ],
             ),
-          IconButton(
-            icon: const Icon(Icons.account_circle_outlined),
-            tooltip: 'Profile',
-            onPressed: () => Scaffold.of(context).openEndDrawer(),
-          ),
-        ],
-      ),
       floatingActionButton: isAdmin
           ? FloatingActionButton.extended(
               onPressed: () => context.push('/inventory/adjust'),
@@ -83,6 +93,18 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
           return Column(
             children: [
+              if (widget.embedded && isAdmin)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => context.push('/inventory/movements'),
+                      icon: const Icon(Icons.history, size: 18),
+                      label: const Text('Movements'),
+                    ),
+                  ),
+                ),
               // Summary cards
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),

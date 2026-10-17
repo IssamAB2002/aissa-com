@@ -6,11 +6,15 @@ import 'package:uuid/uuid.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../products/models/product.dart';
 import '../../products/providers/products_provider.dart';
+import '../../suppliers/models/supplier.dart';
+import '../../suppliers/providers/suppliers_provider.dart';
+import '../../suppliers/widgets/supplier_picker_field.dart';
 import '../models/purchase.dart';
 import '../providers/purchases_provider.dart';
 
 class CreatePurchaseScreen extends ConsumerStatefulWidget {
-  const CreatePurchaseScreen({super.key});
+  const CreatePurchaseScreen({super.key, this.existingPurchase});
+  final Purchase? existingPurchase;
 
   @override
   ConsumerState<CreatePurchaseScreen> createState() =>
@@ -19,7 +23,7 @@ class CreatePurchaseScreen extends ConsumerStatefulWidget {
 
 class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _supplierCtrl = TextEditingController();
+  Supplier? _selectedSupplier;
   final _notesCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController(text: '1');
   final _costCtrl = TextEditingController();
@@ -28,9 +32,22 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
   Product? _selectedProduct;
   bool _saving = false;
 
+  late bool _cartPrefilled = widget.existingPurchase == null;
+  late bool _supplierPrefilled = widget.existingPurchase == null;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existingPurchase;
+    if (existing != null) {
+      _notesCtrl.text = existing.notes ?? '';
+      _feesCtrl.text =
+          existing.fees > 0 ? existing.fees.toStringAsFixed(2) : '';
+    }
+  }
+
   @override
   void dispose() {
-    _supplierCtrl.dispose();
     _notesCtrl.dispose();
     _qtyCtrl.dispose();
     _costCtrl.dispose();
@@ -81,6 +98,12 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedSupplier == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose a supplier.')),
+      );
+      return;
+    }
     if (_cart.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Add at least one product.')),
@@ -89,9 +112,11 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
     }
     setState(() => _saving = true);
     try {
+      final existing = widget.existingPurchase;
       final purchase = Purchase(
-        id: const Uuid().v4(),
-        supplierName: _supplierCtrl.text.trim(),
+        id: existing?.id ?? const Uuid().v4(),
+        supplierId: _selectedSupplier!.id,
+        supplierName: _selectedSupplier!.name,
         items: _cart
             .map((i) => PurchaseItem(
                   productId: i.product.id,
@@ -102,30 +127,96 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
             .toList(),
         total: _total,
         fees: _fees,
-        status: PurchaseStatus.pending,
+        status: existing?.status ?? PurchaseStatus.pending,
         notes: _notesCtrl.text.trim().isEmpty
             ? null
             : _notesCtrl.text.trim(),
-        createdAt: DateTime.now(),
+        createdAt: existing?.createdAt ?? DateTime.now(),
+        updatedAt: existing != null ? DateTime.now() : null,
+        paymentConfirmed: existing?.paymentConfirmed ?? false,
+        stockApplied: existing?.stockApplied ?? false,
+        sourceOrderId: existing?.sourceOrderId,
+        plGenerated: existing?.plGenerated ?? false,
+        plId: existing?.plId,
       );
-      await ref.read(purchasesServiceProvider).createPurchase(purchase);
+      final service = ref.read(purchasesServiceProvider);
+      if (existing != null) {
+        await service.updatePurchase(purchase);
+      } else {
+        await service.createPurchase(purchase);
+      }
       if (mounted) context.pop();
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create purchase: $e')),
+          SnackBar(content: Text('Failed to save purchase: $e')),
         );
       }
+    }
+  }
+
+  void _prefillFromExisting(WidgetRef ref) {
+    final existing = widget.existingPurchase;
+    if (existing == null) return;
+
+    if (!_cartPrefilled) {
+      ref.watch(productsStreamProvider).whenData((products) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _cartPrefilled) return;
+          setState(() {
+            _cartPrefilled = true;
+            _cart
+              ..clear()
+              ..addAll(existing.items.map((item) {
+                final match = products.where((p) => p.id == item.productId);
+                final product = match.isNotEmpty
+                    ? match.first
+                    : Product(
+                        id: item.productId,
+                        name: item.productName,
+                        price: item.unitCost,
+                        costPrice: item.unitCost,
+                        stockQuantity: 1 << 30,
+                        createdAt: existing.createdAt,
+                      );
+                return _CartItem(
+                  product: product,
+                  qty: item.quantity,
+                  unitCost: item.unitCost,
+                );
+              }));
+          });
+        });
+      });
+    }
+
+    if (!_supplierPrefilled && existing.supplierId != null) {
+      ref.watch(suppliersStreamProvider).whenData((suppliers) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _supplierPrefilled) return;
+          final match = suppliers.where((s) => s.id == existing.supplierId);
+          setState(() {
+            _supplierPrefilled = true;
+            if (match.isNotEmpty) _selectedSupplier = match.first;
+          });
+        });
+      });
+    } else if (!_supplierPrefilled) {
+      _supplierPrefilled = true;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productsStreamProvider);
+    final suppliersAsync = ref.watch(suppliersStreamProvider);
+    final isEditing = widget.existingPurchase != null;
+    _prefillFromExisting(ref);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('New Purchase')),
+      appBar: AppBar(
+          title: Text(isEditing ? 'Edit Purchase' : 'New Purchase')),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -134,13 +225,15 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
             Text('Supplier Info',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _supplierCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Supplier Name *'),
-              textCapitalization: TextCapitalization.words,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
+            suppliersAsync.when(
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Text('Error loading suppliers: $e'),
+              data: (suppliers) => SupplierPickerField(
+                suppliers: suppliers,
+                selectedSupplier: _selectedSupplier,
+                onSelected: (s) => setState(() => _selectedSupplier = s),
+              ),
             ),
             const SizedBox(height: 24),
             Text('Add Products',
@@ -235,7 +328,7 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
                       width: 20,
                       child: CircularProgressIndicator(
                           color: Colors.white, strokeWidth: 2))
-                  : const Text('Save Purchase'),
+                  : Text(isEditing ? 'Save Changes' : 'Save Purchase'),
             ),
             const SizedBox(height: 24),
           ],

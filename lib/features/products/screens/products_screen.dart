@@ -4,12 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../providers/products_provider.dart';
 import '../widgets/product_card.dart';
 
 class ProductsScreen extends ConsumerStatefulWidget {
-  const ProductsScreen({super.key});
+  const ProductsScreen({super.key, this.embedded = false});
+
+  /// True when shown as a tab inside the Directory screen — suppresses this
+  /// screen's own app bar so it isn't stacked under Directory's.
+  final bool embedded;
 
   @override
   ConsumerState<ProductsScreen> createState() => _ProductsScreenState();
@@ -27,20 +32,25 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productsStreamProvider);
-    final isAdmin =
-        ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final isAdmin = ref
+            .watch(currentUserProvider)
+            .valueOrNull
+            ?.hasPermission(AppPermission.manageProducts) ??
+        false;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Products'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.account_circle_outlined),
-            tooltip: 'Profile',
-            onPressed: () => Scaffold.of(context).openEndDrawer(),
-          ),
-        ],
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('Products'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.account_circle_outlined),
+                  tooltip: 'Profile',
+                  onPressed: () => Scaffold.of(context).openEndDrawer(),
+                ),
+              ],
+            ),
       floatingActionButton: isAdmin
           ? FloatingActionButton.extended(
               onPressed: () => context.push('/products/new'),

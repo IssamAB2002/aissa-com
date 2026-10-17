@@ -17,6 +17,7 @@ class AppColors {
 
   // Order status
   static const statusPending = Color(0xFFF57C00);
+  static const statusConfirmed = Color(0xFF1976D2);
   static const statusDelivered = Color(0xFF388E3C);
   static const statusCancelled = Color(0xFFD32F2F);
 
