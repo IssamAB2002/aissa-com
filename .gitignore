@@ -32,6 +32,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+macos/Flutter/ephemeral/
+ios/Flutter/ephemeral/
 
 # Symbolication related
 app.*.symbols
