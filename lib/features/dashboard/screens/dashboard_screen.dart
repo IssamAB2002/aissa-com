@@ -18,7 +18,8 @@ import '../../tasks/models/task.dart';
 import '../../tasks/providers/tasks_provider.dart';
 import '../../tasks/widgets/task_tile.dart';
 
-double _calcBenefits(List<Order> orders, String period) {
+double _calcBenefits(
+    List<Order> orders, Map<String, Product> productsById, String period) {
   final now = DateTime.now();
   return orders.where((o) {
     if (!o.paymentConfirmed) return false;
@@ -37,11 +38,11 @@ double _calcBenefits(List<Order> orders, String period) {
       default:
         return false;
     }
-  }).fold<double>(0.0, (sum, o) => sum + o.netProfit);
+  }).fold<double>(0.0, (sum, o) => sum + o.netProfitWithProducts(productsById));
 }
 
-double _calcEmployeeBenefits(
-    List<Order> orders, String? employeeId, String period) {
+double _calcEmployeeBenefits(List<Order> orders,
+    Map<String, Product> productsById, String? employeeId, String period) {
   if (employeeId == null) return 0.0;
   final now = DateTime.now();
   return orders.where((o) {
@@ -61,7 +62,7 @@ double _calcEmployeeBenefits(
       default:
         return false;
     }
-  }).fold<double>(0.0, (sum, o) => sum + o.netProfit);
+  }).fold<double>(0.0, (sum, o) => sum + o.netProfitWithProducts(productsById));
 }
 
 class DashboardScreen extends ConsumerWidget {
@@ -470,11 +471,17 @@ class DashboardScreen extends ConsumerWidget {
                 final hasData =
                     employees.any((e) => e.benefitPercentage > 0);
                 if (!hasData) return const SizedBox.shrink();
-                
+
+                final productsById = {
+                  for (final p in productsAsync.valueOrNull ?? <Product>[])
+                    p.id: p
+                };
+
                 // Calculate rewards for each employee
                 final employeeRewards = employees.map((emp) {
                   final benefits = _calcEmployeeBenefits(
                       ordersAsync.valueOrNull ?? [],
+                      productsById,
                       emp.id,
                       settings.benefitPeriod);
                   return (

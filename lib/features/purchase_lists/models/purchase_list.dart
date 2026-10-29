@@ -1,5 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Where a [PurchaseList] came from: the usual date-range aggregation over
+/// pending [Purchase]s, or the shortcut that builds one directly from
+/// selected Orders (skipping supplier assignment entirely).
+enum PurchaseListOrigin { purchase, order }
+
+extension PurchaseListOriginX on PurchaseListOrigin {
+  String get label => switch (this) {
+        PurchaseListOrigin.purchase => 'Purchase',
+        PurchaseListOrigin.order => 'Order',
+      };
+}
+
 class PurchaseListItem {
   const PurchaseListItem({
     required this.productId,
@@ -56,6 +68,8 @@ class PurchaseList {
     required this.isAllTime,
     required this.groups,
     required this.sourcePurchaseIds,
+    this.origin = PurchaseListOrigin.purchase,
+    this.sourceOrderIds = const [],
   });
 
   final String id;
@@ -65,6 +79,12 @@ class PurchaseList {
   final bool isAllTime;
   final List<PurchaseListGroup> groups;
   final List<String> sourcePurchaseIds;
+  /// Where this list came from. Absent on documents written before this
+  /// field existed, which were all generated from Purchases.
+  final PurchaseListOrigin origin;
+  /// The orders this list was generated directly from, if [origin] is
+  /// [PurchaseListOrigin.order]. Empty otherwise.
+  final List<String> sourceOrderIds;
 
   int get totalProducts => groups.fold(0, (s, g) => s + g.items.length);
   int get checkedProducts =>
@@ -78,6 +98,8 @@ class PurchaseList {
         'isAllTime': isAllTime,
         'supplierOrder': groups.map((g) => g.key).toList(),
         'sourcePurchaseIds': sourcePurchaseIds,
+        'origin': origin.name,
+        'sourceOrderIds': sourceOrderIds,
         'groups': {
           for (final g in groups)
             g.key: {
@@ -119,6 +141,12 @@ class PurchaseList {
       groups: groups,
       sourcePurchaseIds:
           (m['sourcePurchaseIds'] as List?)?.cast<String>() ?? const [],
+      origin: PurchaseListOrigin.values.firstWhere(
+        (o) => o.name == m['origin'],
+        orElse: () => PurchaseListOrigin.purchase,
+      ),
+      sourceOrderIds:
+          (m['sourceOrderIds'] as List?)?.cast<String>() ?? const [],
     );
   }
 }

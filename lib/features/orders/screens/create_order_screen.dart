@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/phone_utils.dart';
 import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../auth/services/auth_service.dart';
 import '../../employees/models/employee.dart';
 import '../../employees/providers/employees_provider.dart';
 import '../../products/models/product.dart';
@@ -29,6 +31,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _phoneFocus = FocusNode();
   final _addressCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController(text: '1');
@@ -57,6 +60,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     _priceCtrl.addListener(_onPriceChanged);
     _discountCtrl.addListener(_onExtraFieldChanged);
     _feesCtrl.addListener(_onExtraFieldChanged);
+    _phoneFocus.addListener(_onPhoneFocusChanged);
     final existing = widget.existingOrder;
     if (existing != null) {
       _nameCtrl.text = existing.customerName;
@@ -75,9 +79,19 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
   void _onPriceChanged() => setState(() {});
   void _onExtraFieldChanged() => setState(() {});
 
+  void _onPhoneFocusChanged() {
+    if (_phoneFocus.hasFocus) return;
+    final normalized = normalizeAlgerianPhone(_phoneCtrl.text);
+    if (normalized != null && normalized != _phoneCtrl.text) {
+      _phoneCtrl.text = normalized;
+    }
+  }
+
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _phoneFocus.removeListener(_onPhoneFocusChanged);
+    _phoneFocus.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     _notesCtrl.dispose();
@@ -271,18 +285,75 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
     try {
       final appUser = ref.read(currentUserProvider).valueOrNull;
       final selectedEmployee = _selectedEmployee;
-      final creatorId =
-          selectedEmployee != null ? selectedEmployee.id : appUser?.employeeId;
-      final creatorName = selectedEmployee != null
-          ? selectedEmployee.name
-          : appUser?.displayName;
+      String? creatorId;
+      String? creatorName;
+
+      if (selectedEmployee != null) {
+        // Admin picked someone from the dropdown — sourced live from the
+        // employees collection, so this is always a valid doc id.
+        creatorId = selectedEmployee.id;
+        creatorName = selectedEmployee.name;
+      } else if (appUser != null && appUser.isEmployee) {
+        // Self-created order: only trust employeeId if it actually resolves
+        // to a real employees doc. Fall back to matching by email — an
+        // employee can't change their own email, so it reliably recovers
+        // the correct id for an account whose employeeId field got
+        // corrupted (e.g. still holding the old Firebase Auth uid from
+        // before employees had their own doc id).
+        List<Employee> employees;
+        try {
+          employees = await ref.read(employeesStreamProvider.future);
+        } catch (_) {
+          employees = ref.read(employeesStreamProvider).valueOrNull ?? const [];
+        }
+        final byId = employees.where((e) => e.id == appUser.employeeId);
+        final byEmail = employees.where(
+          (e) => e.email != null &&
+              e.email!.toLowerCase() == appUser.email.toLowerCase(),
+        );
+        final resolved =
+            byId.isNotEmpty ? byId.first : (byEmail.isNotEmpty ? byEmail.first : null);
+        if (resolved == null) {
+          if (mounted) {
+            setState(() => _saving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  "Your employee account isn't linked correctly. Contact an admin before creating orders.",
+                ),
+              ),
+            );
+          }
+          return;
+        }
+        creatorId = resolved.id;
+        creatorName = resolved.name;
+        if (byId.isEmpty) {
+          // Self-heal: the account's employeeId was stale/wrong — fix it so
+          // every other employeeId-based check (order visibility, edit
+          // permission, rewards) stays consistent too.
+          try {
+            await ref
+                .read(authServiceProvider)
+                .repairEmployeeId(appUser.uid, resolved.id);
+          } catch (_) {
+            // Best-effort; the order itself still gets the correct id.
+          }
+        }
+      } else {
+        // Admin creating without picking anyone — legitimately unassigned.
+        creatorId = null;
+        creatorName = appUser?.displayName;
+      }
       final wilaya = _selectedWilaya!;
       final existing = widget.existingOrder;
       final order = Order(
         id: existing?.id ?? const Uuid().v4(),
         customerName: _nameCtrl.text.trim(),
-        customerPhone:
-            _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+        customerPhone: _phoneCtrl.text.trim().isEmpty
+            ? null
+            : normalizeAlgerianPhone(_phoneCtrl.text) ??
+                _phoneCtrl.text.trim(),
         address:
             _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
         city: wilaya.nameFr,
@@ -495,10 +566,18 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _phoneCtrl,
-                decoration: const InputDecoration(labelText: 'Phone'),
+                focusNode: _phoneFocus,
+                decoration: const InputDecoration(
+                  labelText: 'Phone',
+                  hintText: '05/06/07… or +213…',
+                ),
                 keyboardType: TextInputType.phone,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Required';
+                  return normalizeAlgerianPhone(v) == null
+                      ? 'Must be a valid 05/06/07 number (or +213/213)'
+                      : null;
+                },
               ),
               const SizedBox(height: 12),
               _WilayaDropdown(

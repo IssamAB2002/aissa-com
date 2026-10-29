@@ -68,6 +68,46 @@ class PurchaseListDetailScreen extends ConsumerWidget {
   }
 }
 
+String _titleLabel(PurchaseList list) {
+  if (list.origin == PurchaseListOrigin.order) {
+    final n = list.sourceOrderIds.length;
+    return 'From $n Order${n != 1 ? 's' : ''}';
+  }
+  if (list.isAllTime) return 'All Time';
+  return '${DateFormat('MMM d, y').format(list.rangeStart!)} '
+      '– ${DateFormat('MMM d, y').format(list.rangeEnd!.subtract(const Duration(days: 1)))}';
+}
+
+class _FromOrderBadge extends StatelessWidget {
+  const _FromOrderBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.shopping_bag_outlined, size: 12, color: AppColors.primary),
+          SizedBox(width: 4),
+          Text(
+            'From Order',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PurchaseListBody extends ConsumerWidget {
   const _PurchaseListBody({required this.list});
   final PurchaseList list;
@@ -91,12 +131,17 @@ class _PurchaseListBody extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                list.isAllTime
-                    ? 'All Time'
-                    : '${DateFormat('MMM d, y').format(list.rangeStart!)} '
-                        '– ${DateFormat('MMM d, y').format(list.rangeEnd!.subtract(const Duration(days: 1)))}',
-                style: Theme.of(context).textTheme.titleMedium,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _titleLabel(list),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  if (list.origin == PurchaseListOrigin.order)
+                    const _FromOrderBadge(),
+                ],
               ),
               const SizedBox(height: 4),
               Text(

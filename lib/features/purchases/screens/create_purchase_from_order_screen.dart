@@ -32,15 +32,75 @@ class CreatePurchaseFromOrderScreen extends ConsumerWidget {
         if (idx == -1) {
           return const Scaffold(body: Center(child: Text('Order not found')));
         }
-        return _CreatePurchaseFromOrderView(order: orders[idx]);
+        return _CreatePurchaseFromOrderView(
+          items: orders[idx].items,
+          sourceOrderIds: [orders[idx].id],
+        );
+      },
+    );
+  }
+}
+
+/// Merges items from several orders (summed by product) and opens the same
+/// supplier-assignment view used by the single-order CPO flow — Multi-CPO's
+/// entry point.
+class CreatePurchaseFromOrdersScreen extends ConsumerWidget {
+  const CreatePurchaseFromOrdersScreen({super.key, required this.orderIds});
+  final List<String> orderIds;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ordersAsync = ref.watch(ordersStreamProvider);
+    return ordersAsync.when(
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      data: (orders) {
+        final selected =
+            orders.where((o) => orderIds.contains(o.id)).toList();
+        if (selected.isEmpty) {
+          return const Scaffold(body: Center(child: Text('Orders not found')));
+        }
+
+        final mergedByProduct = <String, OrderItem>{};
+        for (final o in selected) {
+          for (final item in o.items) {
+            final existing = mergedByProduct[item.productId];
+            if (existing == null) {
+              mergedByProduct[item.productId] = item;
+            } else {
+              mergedByProduct[item.productId] = OrderItem(
+                productId: item.productId,
+                productName: item.productName,
+                unitPrice: existing.unitPrice,
+                quantity: existing.quantity + item.quantity,
+                unitCostPrice: existing.unitCostPrice > 0
+                    ? existing.unitCostPrice
+                    : item.unitCostPrice,
+              );
+            }
+          }
+        }
+
+        return _CreatePurchaseFromOrderView(
+          items: mergedByProduct.values.toList(),
+          sourceOrderIds: selected.map((o) => o.id).toList(),
+          title: 'Create Purchase from Orders',
+        );
       },
     );
   }
 }
 
 class _CreatePurchaseFromOrderView extends ConsumerStatefulWidget {
-  const _CreatePurchaseFromOrderView({required this.order});
-  final Order order;
+  const _CreatePurchaseFromOrderView({
+    required this.items,
+    required this.sourceOrderIds,
+    this.title = 'Create Purchase from Order',
+  });
+  final List<OrderItem> items;
+  final List<String> sourceOrderIds;
+  final String title;
 
   @override
   ConsumerState<_CreatePurchaseFromOrderView> createState() =>
@@ -50,7 +110,7 @@ class _CreatePurchaseFromOrderView extends ConsumerStatefulWidget {
 class _CreatePurchaseFromOrderViewState
     extends ConsumerState<_CreatePurchaseFromOrderView> {
   late final List<TextEditingController> _costCtrls = [
-    for (final item in widget.order.items)
+    for (final item in widget.items)
       TextEditingController(
         text: item.unitCostPrice > 0
             ? item.unitCostPrice.toStringAsFixed(2)
@@ -86,7 +146,7 @@ class _CreatePurchaseFromOrderViewState
   /// Supplier id -> item indices, in ascending item order.
   Map<String, List<int>> get _groups {
     final groups = <String, List<int>>{};
-    for (var i = 0; i < widget.order.items.length; i++) {
+    for (var i = 0; i < widget.items.length; i++) {
       final supplier = _selectedSuppliers[i];
       if (supplier == null) continue;
       groups.putIfAbsent(supplier.id, () => []).add(i);
@@ -139,13 +199,13 @@ class _CreatePurchaseFromOrderViewState
   Future<void> _submit() async {
     setState(() => _error = null);
 
-    if (_excludedIndices.length == widget.order.items.length) {
+    if (_excludedIndices.length == widget.items.length) {
       setState(() => _error =
           'At least one product must be included in the purchase.');
       return;
     }
 
-    for (var i = 0; i < widget.order.items.length; i++) {
+    for (var i = 0; i < widget.items.length; i++) {
       if (_excludedIndices.contains(i)) continue;
       if (_selectedSuppliers[i] == null) {
         setState(() => _error =
@@ -171,7 +231,7 @@ class _CreatePurchaseFromOrderViewState
         final supplier = _selectedSuppliers[indices.first]!;
 
         final items = indices.map((i) {
-          final orderItem = widget.order.items[i];
+          final orderItem = widget.items[i];
           return PurchaseItem(
             productId: orderItem.productId,
             productName: orderItem.productName,
@@ -188,7 +248,10 @@ class _CreatePurchaseFromOrderViewState
           total: items.fold(0.0, (s, i) => s + i.subtotal),
           status: PurchaseStatus.pending,
           createdAt: DateTime.now(),
-          sourceOrderId: widget.order.id,
+          sourceOrderId: widget.sourceOrderIds.length == 1
+              ? widget.sourceOrderIds.first
+              : null,
+          sourceOrderIds: widget.sourceOrderIds,
         );
         await purchasesService.createPurchase(purchase);
 
@@ -222,10 +285,10 @@ class _CreatePurchaseFromOrderViewState
     final renderedSupplierIds = <String>{};
     final widgets = <Widget>[];
 
-    for (var i = 0; i < widget.order.items.length; i++) {
+    for (var i = 0; i < widget.items.length; i++) {
       if (_excludedIndices.contains(i)) {
         widgets.add(_ExcludedItemCard(
-          item: widget.order.items[i],
+          item: widget.items[i],
           onInclude: () => _toggleExcluded(i),
         ));
         widgets.add(const SizedBox(height: 12));
@@ -241,7 +304,7 @@ class _CreatePurchaseFromOrderViewState
         widgets.add(_GroupedSupplierCard(
           supplier: supplier,
           memberIndices: members,
-          items: widget.order.items,
+          items: widget.items,
           suppliers: suppliers,
           costCtrls: _costCtrls,
           dragValid: _dragValid,
@@ -263,7 +326,7 @@ class _CreatePurchaseFromOrderViewState
       } else {
         widgets.add(_OrderItemCard(
           index: i,
-          item: widget.order.items[i],
+          item: widget.items[i],
           suppliers: suppliers,
           selectedSupplier: supplier,
           costCtrl: _costCtrls[i],
@@ -290,7 +353,7 @@ class _CreatePurchaseFromOrderViewState
     final suppliersAsync = ref.watch(suppliersStreamProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Purchase from Order')),
+      appBar: AppBar(title: Text(widget.title)),
       body: suppliersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error loading suppliers: $e')),
@@ -325,7 +388,7 @@ class _CreatePurchaseFromOrderViewState
                       (s, i) =>
                           s +
                           (double.tryParse(_costCtrls[i].text.trim()) ?? 0) *
-                              widget.order.items[i].quantity),
+                              widget.items[i].quantity),
                   received: _receivedBySupplier[entry.key] ?? false,
                   confirmPayment:
                       _confirmPaymentBySupplier[entry.key] ?? false,

@@ -150,6 +150,14 @@ class AuthService {
           .doc(uid)
           .update({'permissions': permissions.toList()});
 
+  /// Repairs a user's `employeeId` link, e.g. when it still holds a stale
+  /// value (such as the old Firebase Auth uid from before employees had
+  /// their own doc id) instead of a real `employees` document id.
+  Future<void> repairEmployeeId(String uid, String employeeId) =>
+      _firestore.collection('users').doc(uid).update({
+        'employeeId': employeeId,
+      });
+
   Future<void> signOut() async {
     await _session.clearSession();
     await _auth.signOut();

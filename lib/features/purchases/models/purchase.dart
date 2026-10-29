@@ -55,6 +55,7 @@ class Purchase {
     this.paymentConfirmed = false,
     this.stockApplied = false,
     this.sourceOrderId,
+    this.sourceOrderIds = const [],
     this.plGenerated = false,
     this.plId,
   });
@@ -72,8 +73,13 @@ class Purchase {
   final bool paymentConfirmed;
   final bool stockApplied;
   /// The order this purchase was generated from via "Create Purchase from
-  /// Order", if any. Null for purchases created manually.
+  /// Order", if any. Null for purchases created manually, or when
+  /// generated from more than one order (see [sourceOrderIds]).
   final String? sourceOrderId;
+  /// Every order this purchase was generated from via "Create Purchase
+  /// from Order(s)" — a single id for the single-order flow, several for
+  /// the multi-order (Multi-CPO) flow. Empty for manually-created purchases.
+  final List<String> sourceOrderIds;
   /// Whether this purchase's items were already pulled into a Purchase
   /// List — prevents the same items being requested twice.
   final bool plGenerated;
@@ -95,6 +101,7 @@ class Purchase {
         'paymentConfirmed': paymentConfirmed,
         'stockApplied': stockApplied,
         'sourceOrderId': sourceOrderId,
+        'sourceOrderIds': sourceOrderIds,
         'plGenerated': plGenerated,
         'plId': plId,
       };
@@ -120,6 +127,10 @@ class Purchase {
       stockApplied: m['stockApplied'] as bool? ??
           (m['paymentConfirmed'] as bool? ?? false),
       sourceOrderId: m['sourceOrderId'] as String?,
+      sourceOrderIds: (m['sourceOrderIds'] as List?)?.cast<String>() ??
+          (m['sourceOrderId'] != null
+              ? [m['sourceOrderId'] as String]
+              : const []),
       plGenerated: m['plGenerated'] as bool? ?? false,
       plId: m['plId'] as String?,
     );
@@ -146,6 +157,7 @@ class Purchase {
         paymentConfirmed: paymentConfirmed,
         stockApplied: stockApplied,
         sourceOrderId: sourceOrderId,
+        sourceOrderIds: sourceOrderIds,
         plGenerated: plGenerated,
         plId: plId,
       );

@@ -6,6 +6,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../employees/models/employee.dart';
+import '../../employees/providers/employees_provider.dart';
+import '../../products/providers/products_provider.dart';
+import '../../purchase_lists/providers/purchase_lists_provider.dart';
+import '../../purchases/providers/purchases_provider.dart';
 import '../models/order.dart';
 import '../providers/orders_provider.dart';
 import '../widgets/multi_cp_dialog.dart';
@@ -27,6 +32,12 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   bool _multiZrMode = false;
   final Set<String> _selectedForZr = {};
   bool _multiCpMode = false;
+  bool _multiPlMode = false;
+  final Set<String> _selectedForPl = {};
+  bool _creatingPl = false;
+  bool _multiCpoMode = false;
+  final Set<String> _selectedForCpo = {};
+  Employee? _employeeFilter;
 
   DateTimeRange? _activeDateRange() {
     final now = DateTime.now();
@@ -54,9 +65,27 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   List<Order> _filteredForMultiZr(List<Order> orders) {
     final activeRange = _activeDateRange();
     return orders.where((o) {
-      final matchStatus = o.status == OrderStatus.pending &&
+      final matchStatus = (o.status == OrderStatus.pending ||
+              o.status == OrderStatus.confirmed) &&
           !o.zrSubmitted &&
           o.hasZrShippingData;
+      final matchSearch = _search.isEmpty ||
+          o.customerName.toLowerCase().contains(_search.toLowerCase());
+      final matchDate = activeRange == null ||
+          (!o.createdAt.isBefore(activeRange.start) &&
+              o.createdAt.isBefore(activeRange.end));
+      return matchStatus && matchSearch && matchDate;
+    }).toList();
+  }
+
+  /// Orders selectable for the "create PL from Orders" shortcut: not
+  /// already pulled into a PL, and with no Purchase created from them yet
+  /// (that path already covers their restocking via its own Purchase/PL
+  /// flow).
+  List<Order> _filteredForMultiPl(List<Order> orders, Set<String> orderIdsWithPurchase) {
+    final activeRange = _activeDateRange();
+    return orders.where((o) {
+      final matchStatus = !o.plGenerated && !orderIdsWithPurchase.contains(o.id);
       final matchSearch = _search.isEmpty ||
           o.customerName.toLowerCase().contains(_search.toLowerCase());
       final matchDate = activeRange == null ||
@@ -74,6 +103,30 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         _selectedForZr.removeAll(eligible.map((o) => o.id));
       } else {
         _selectedForZr.addAll(eligible.map((o) => o.id));
+      }
+    });
+  }
+
+  void _togglePlSelectAll(List<Order> eligible) {
+    final allSelected = eligible.isNotEmpty &&
+        eligible.every((o) => _selectedForPl.contains(o.id));
+    setState(() {
+      if (allSelected) {
+        _selectedForPl.removeAll(eligible.map((o) => o.id));
+      } else {
+        _selectedForPl.addAll(eligible.map((o) => o.id));
+      }
+    });
+  }
+
+  void _toggleCpoSelectAll(List<Order> eligible) {
+    final allSelected = eligible.isNotEmpty &&
+        eligible.every((o) => _selectedForCpo.contains(o.id));
+    setState(() {
+      if (allSelected) {
+        _selectedForCpo.removeAll(eligible.map((o) => o.id));
+      } else {
+        _selectedForCpo.addAll(eligible.map((o) => o.id));
       }
     });
   }
@@ -255,11 +308,80 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     );
   }
 
+  Future<void> _startCreatePl() async {
+    final allOrders = ref.read(ordersStreamProvider).valueOrNull ?? [];
+    final selected =
+        allOrders.where((o) => _selectedForPl.contains(o.id)).toList();
+    if (selected.isEmpty) return;
+
+    final ok = await AppConfirmDialog.show(
+      context,
+      icon: Icons.checklist_rtl,
+      iconColor: AppColors.primary,
+      confirmColor: AppColors.primary,
+      title: 'Create Purchase List',
+      message:
+          'This will build a Purchase List from ${selected.length} order(s), '
+          'netted against current stock. This cannot be undone.',
+      confirmLabel: 'Create',
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _creatingPl = true);
+    try {
+      final products = ref.read(productsStreamProvider).valueOrNull ?? [];
+      final stockByProductId = {
+        for (final p in products) p.id: p.stockQuantity,
+      };
+      final list = await ref.read(purchaseListsServiceProvider).generateFromOrders(
+            orders: selected,
+            stockByProductId: stockByProductId,
+          );
+      if (!mounted) return;
+      setState(() {
+        _multiPlMode = false;
+        _selectedForPl.clear();
+        _creatingPl = false;
+      });
+      context.push('/purchase-lists/${list.id}');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _creatingPl = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create Purchase List: $e')),
+      );
+    }
+  }
+
+  void _startCreateCpo() {
+    final allOrders = ref.read(ordersStreamProvider).valueOrNull ?? [];
+    final selected =
+        allOrders.where((o) => _selectedForCpo.contains(o.id)).toList();
+    if (selected.isEmpty) return;
+
+    setState(() {
+      _multiCpoMode = false;
+      _selectedForCpo.clear();
+    });
+    context.push(
+      '/orders/create-purchase-multi',
+      extra: selected.map((o) => o.id).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ordersAsync = ref.watch(ordersStreamProvider);
     final isAdmin =
         ref.watch(currentUserProvider).valueOrNull?.isAdmin ?? false;
+    final orderIdsWithPurchase = ref
+        .watch(purchasesStreamProvider)
+        .valueOrNull
+        ?.expand((p) => p.sourceOrderIds.isNotEmpty
+            ? p.sourceOrderIds
+            : [if (p.sourceOrderId != null) p.sourceOrderId!])
+        .toSet() ??
+        const <String>{};
 
     return Scaffold(
       appBar: AppBar(
@@ -278,19 +400,37 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               icon: const Icon(Icons.price_check),
               label: const Text('Check ZR Status'),
             )
-          : (!_multiZrMode
-              ? FloatingActionButton.extended(
-                  onPressed: () => context.push('/orders/new'),
-                  icon: const Icon(Icons.add),
-                  label: const Text('New Order'),
-                )
-              : (_selectedForZr.isEmpty
+          : (_multiPlMode
+              ? (_selectedForPl.isEmpty || _creatingPl
                   ? null
                   : FloatingActionButton.extended(
-                      onPressed: _startSending,
-                      icon: const Icon(Icons.local_shipping_outlined),
-                      label: Text('Start Sending (${_selectedForZr.length})'),
-                    ))),
+                      onPressed: _startCreatePl,
+                      icon: const Icon(Icons.checklist_rtl),
+                      label: Text('Create PL (${_selectedForPl.length})'),
+                    ))
+              : (_multiCpoMode
+                  ? (_selectedForCpo.isEmpty
+                      ? null
+                      : FloatingActionButton.extended(
+                          onPressed: _startCreateCpo,
+                          icon: const Icon(Icons.shopping_cart_checkout),
+                          label:
+                              Text('Create Purchase (${_selectedForCpo.length})'),
+                        ))
+                  : (!_multiZrMode
+                      ? FloatingActionButton.extended(
+                          onPressed: () => context.push('/orders/new'),
+                          icon: const Icon(Icons.add),
+                          label: const Text('New Order'),
+                        )
+                      : (_selectedForZr.isEmpty
+                          ? null
+                          : FloatingActionButton.extended(
+                              onPressed: _startSending,
+                              icon: const Icon(Icons.local_shipping_outlined),
+                              label:
+                                  Text('Start Sending (${_selectedForZr.length})'),
+                            ))))),
       body: Column(
         children: [
           _SearchBar(onChanged: (v) => setState(() => _search = v)),
@@ -313,6 +453,36 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             _MultiCpHeader(
               onCancel: () => setState(() => _multiCpMode = false),
             )
+          else if (_multiPlMode)
+            _MultiPlHeader(
+              allSelected: () {
+                final eligible = _filteredForMultiPl(
+                    ordersAsync.valueOrNull ?? [], orderIdsWithPurchase);
+                return eligible.isNotEmpty &&
+                    eligible.every((o) => _selectedForPl.contains(o.id));
+              }(),
+              onSelectAll: () => _togglePlSelectAll(_filteredForMultiPl(
+                  ordersAsync.valueOrNull ?? [], orderIdsWithPurchase)),
+              onCancel: () => setState(() {
+                _multiPlMode = false;
+                _selectedForPl.clear();
+              }),
+            )
+          else if (_multiCpoMode)
+            _MultiCpoHeader(
+              allSelected: () {
+                final eligible = _filteredForMultiPl(
+                    ordersAsync.valueOrNull ?? [], orderIdsWithPurchase);
+                return eligible.isNotEmpty &&
+                    eligible.every((o) => _selectedForCpo.contains(o.id));
+              }(),
+              onSelectAll: () => _toggleCpoSelectAll(_filteredForMultiPl(
+                  ordersAsync.valueOrNull ?? [], orderIdsWithPurchase)),
+              onCancel: () => setState(() {
+                _multiCpoMode = false;
+                _selectedForCpo.clear();
+              }),
+            )
           else
             _FilterChips(
               selected: _filter,
@@ -321,12 +491,25 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               onMultiZr: () => setState(() => _multiZrMode = true),
               showMultiCp: isAdmin,
               onMultiCp: () => setState(() => _multiCpMode = true),
+              showMultiPl: isAdmin,
+              onMultiPl: () => setState(() => _multiPlMode = true),
+              showMultiCpo: isAdmin,
+              onMultiCpo: () => setState(() => _multiCpoMode = true),
             ),
           _DateFilterChips(
             selected: _dateFilter,
             onSelected: (v) => setState(() => _dateFilter = v),
             onCustom: _pickCustomRange,
           ),
+          if (isAdmin &&
+              !_multiZrMode &&
+              !_multiCpMode &&
+              !_multiPlMode &&
+              !_multiCpoMode)
+            _EmployeeFilterChips(
+              selected: _employeeFilter,
+              onSelected: (e) => setState(() => _employeeFilter = e),
+            ),
           Expanded(
             child: ordersAsync.when(
               loading: () =>
@@ -336,7 +519,9 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                 final activeRange = _activeDateRange();
                 final filtered = _multiZrMode
                     ? _filteredForMultiZr(orders)
-                    : orders.where((o) {
+                    : (_multiPlMode || _multiCpoMode)
+                        ? _filteredForMultiPl(orders, orderIdsWithPurchase)
+                        : orders.where((o) {
                         final matchStatus =
                             _filter == null || o.status == _filter;
                         final matchSearch = _search.isEmpty ||
@@ -346,7 +531,12 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                         final matchDate = activeRange == null ||
                             (!o.createdAt.isBefore(activeRange.start) &&
                                 o.createdAt.isBefore(activeRange.end));
-                        return matchStatus && matchSearch && matchDate;
+                        final matchEmployee = _employeeFilter == null ||
+                            o.creatorId == _employeeFilter!.id;
+                        return matchStatus &&
+                            matchSearch &&
+                            matchDate &&
+                            matchEmployee;
                       }).toList();
 
                 if (filtered.isEmpty) {
@@ -362,9 +552,16 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                   icon: Icons.local_shipping_outlined,
                                   title: 'No orders to send',
                                   subtitle:
-                                      'No pending orders with ZR shipping info match this date range.',
+                                      'No pending or confirmed orders with ZR shipping info match this date range.',
                                 )
-                              : EmptyState(
+                              : (_multiPlMode || _multiCpoMode)
+                                  ? const EmptyState(
+                                      icon: Icons.checklist_rtl,
+                                      title: 'No orders to use',
+                                      subtitle:
+                                          'No orders without a Purchase List or Purchase match this date range.',
+                                    )
+                                  : EmptyState(
                                   icon: Icons.shopping_bag_outlined,
                                   title: 'No orders found',
                                   subtitle:
@@ -393,6 +590,30 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                           onTap: () => setState(() {
                             if (!_selectedForZr.remove(order.id)) {
                               _selectedForZr.add(order.id);
+                            }
+                          }),
+                        );
+                      }
+                      if (_multiPlMode) {
+                        return OrderCard(
+                          order: order,
+                          selectionMode: true,
+                          isSelected: _selectedForPl.contains(order.id),
+                          onTap: () => setState(() {
+                            if (!_selectedForPl.remove(order.id)) {
+                              _selectedForPl.add(order.id);
+                            }
+                          }),
+                        );
+                      }
+                      if (_multiCpoMode) {
+                        return OrderCard(
+                          order: order,
+                          selectionMode: true,
+                          isSelected: _selectedForCpo.contains(order.id),
+                          onTap: () => setState(() {
+                            if (!_selectedForCpo.remove(order.id)) {
+                              _selectedForCpo.add(order.id);
                             }
                           }),
                         );
@@ -468,6 +689,10 @@ class _FilterChips extends StatelessWidget {
     this.onMultiZr,
     this.showMultiCp = false,
     this.onMultiCp,
+    this.showMultiPl = false,
+    this.onMultiPl,
+    this.showMultiCpo = false,
+    this.onMultiCpo,
   });
   final OrderStatus? selected;
   final ValueChanged<OrderStatus?> onSelected;
@@ -475,6 +700,10 @@ class _FilterChips extends StatelessWidget {
   final VoidCallback? onMultiZr;
   final bool showMultiCp;
   final VoidCallback? onMultiCp;
+  final bool showMultiPl;
+  final VoidCallback? onMultiPl;
+  final bool showMultiCpo;
+  final VoidCallback? onMultiCpo;
 
   @override
   Widget build(BuildContext context) {
@@ -570,6 +799,76 @@ class _FilterChips extends StatelessWidget {
               ),
             ),
           ],
+          if (showMultiPl) ...[
+            const SizedBox(width: 4),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onMultiPl,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.primary, width: 1.5),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.checklist_rtl,
+                          size: 15, color: AppColors.primary),
+                      SizedBox(width: 6),
+                      Text(
+                        'Multi-PL',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (showMultiCpo) ...[
+            const SizedBox(width: 4),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onMultiCpo,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.primary, width: 1.5),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.shopping_cart_checkout,
+                          size: 15, color: AppColors.primary),
+                      SizedBox(width: 6),
+                      Text(
+                        'Multi-CPO',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -624,7 +923,87 @@ class _MultiZrHeader extends StatelessWidget {
         children: [
           const Expanded(
             child: Text(
-              'Select pending orders not yet sent to ZR',
+              'Select pending or confirmed orders not yet sent to ZR',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onSelectAll,
+            child: Text(allSelected ? 'Deselect All' : 'Select All'),
+          ),
+          TextButton(
+            onPressed: onCancel,
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MultiPlHeader extends StatelessWidget {
+  const _MultiPlHeader({
+    required this.allSelected,
+    required this.onSelectAll,
+    required this.onCancel,
+  });
+  final bool allSelected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Select orders to build a Purchase List from',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onSelectAll,
+            child: Text(allSelected ? 'Deselect All' : 'Select All'),
+          ),
+          TextButton(
+            onPressed: onCancel,
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MultiCpoHeader extends StatelessWidget {
+  const _MultiCpoHeader({
+    required this.allSelected,
+    required this.onSelectAll,
+    required this.onCancel,
+  });
+  final bool allSelected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Select orders to create a Purchase from',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -710,6 +1089,47 @@ class _DateFilterChips extends StatelessWidget {
                       ? Colors.white
                       : AppColors.textPrimary,
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmployeeFilterChips extends ConsumerWidget {
+  const _EmployeeFilterChips({
+    required this.selected,
+    required this.onSelected,
+  });
+  final Employee? selected;
+  final ValueChanged<Employee?> onSelected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final employeesAsync = ref.watch(employeesStreamProvider);
+    final employees = employeesAsync.valueOrNull ?? [];
+    if (employees.isEmpty) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+      child: Row(
+        children: [
+          _TabButton(
+            label: 'All Employees',
+            isSelected: selected == null,
+            onPressed: () => onSelected(null),
+          ),
+          const SizedBox(width: 8),
+          ...employees.map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _TabButton(
+                label: e.name,
+                isSelected: selected?.id == e.id,
+                onPressed: () => onSelected(selected?.id == e.id ? null : e),
               ),
             ),
           ),

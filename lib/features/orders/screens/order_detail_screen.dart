@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_confirm_dialog.dart';
 import '../../../features/auth/models/app_permission.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../products/providers/products_provider.dart';
 import '../../purchases/providers/purchases_provider.dart';
 import '../../shipping/providers/shipping_reference_provider.dart';
 import '../../shipping/services/zr_client.dart';
@@ -141,13 +142,15 @@ class _OrderDetailView extends StatelessWidget {
   }
 }
 
-class _InfoCard extends StatelessWidget {
+class _InfoCard extends ConsumerWidget {
   const _InfoCard({required this.order, required this.isAdmin});
   final Order order;
   final bool isAdmin;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final products = ref.watch(productsStreamProvider).valueOrNull ?? [];
+    final productsById = {for (final p in products) p.id: p};
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,7 +195,7 @@ class _InfoCard extends StatelessWidget {
                         .bodyMedium
                         ?.copyWith(color: AppColors.textSecondary)),
                 Text(
-                  'DZD ${order.netProfit.toStringAsFixed(2)}',
+                  'DZD ${order.netProfitWithProducts(productsById).toStringAsFixed(2)}',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AppColors.success,
                         fontWeight: FontWeight.w700,

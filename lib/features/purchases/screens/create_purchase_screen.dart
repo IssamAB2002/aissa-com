@@ -136,6 +136,7 @@ class _CreatePurchaseScreenState extends ConsumerState<CreatePurchaseScreen> {
         paymentConfirmed: existing?.paymentConfirmed ?? false,
         stockApplied: existing?.stockApplied ?? false,
         sourceOrderId: existing?.sourceOrderId,
+        sourceOrderIds: existing?.sourceOrderIds ?? const [],
         plGenerated: existing?.plGenerated ?? false,
         plId: existing?.plId,
       );

@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../products/models/product.dart';
+
 enum OrderStatus { pending, confirmed, delivered, cancelled }
 
 extension OrderStatusX on OrderStatus {
@@ -37,6 +39,12 @@ class OrderItem {
 
   double get subtotal => unitPrice * quantity;
   double get profit => (unitPrice - unitCostPrice) * quantity;
+
+  /// Profit using [liveCostPrice] (the product's current cost price) when
+  /// available, falling back to the snapshot taken at order-creation time —
+  /// e.g. if the product was since deleted or never had a cost price set.
+  double profitWith(double? liveCostPrice) =>
+      (unitPrice - (liveCostPrice ?? unitCostPrice)) * quantity;
 
   Map<String, dynamic> toMap() => {
         'productId': productId,
@@ -90,6 +98,8 @@ class Order {
     this.zrPostedAt,
     this.zrDeliveryFee = 0.0,
     this.fees = 0.0,
+    this.plGenerated = false,
+    this.plId,
   });
 
   final String id;
@@ -128,6 +138,11 @@ class Order {
   final double zrDeliveryFee;
   final double fees;
 
+  /// Whether this order's items were already pulled into a Purchase List
+  /// via the "create PL from Orders" shortcut.
+  final bool plGenerated;
+  final String? plId;
+
   bool get hasZrShippingData => deliveryType == DeliveryType.homeDelivery
       ? (wilayaZrTerritoryId != null && baladiaZrTerritoryId != null)
       : (wilayaZrTerritoryId != null &&
@@ -137,6 +152,16 @@ class Order {
   double get itemsSubtotal => items.fold(0.0, (s, i) => s + i.subtotal);
   double get netProfit =>
       items.fold(0.0, (s, i) => s + i.profit) -
+      discountAmount -
+      zrDeliveryFee +
+      fees;
+
+  /// Net profit using each product's current cost price (falling back to
+  /// the order's own snapshot for products no longer found in
+  /// [productsById]) — use this wherever Net Profit is actually displayed.
+  double netProfitWithProducts(Map<String, Product> productsById) =>
+      items.fold(
+          0.0, (s, i) => s + i.profitWith(productsById[i.productId]?.costPrice)) -
       discountAmount -
       zrDeliveryFee +
       fees;
@@ -184,6 +209,8 @@ class Order {
             zrPostedAt != null ? Timestamp.fromDate(zrPostedAt!) : null,
         'zrDeliveryFee': zrDeliveryFee,
         'fees': fees,
+        'plGenerated': plGenerated,
+        'plId': plId,
       };
 
   factory Order.fromDoc(DocumentSnapshot doc) {
@@ -233,6 +260,8 @@ class Order {
       zrPostedAt: (m['zrPostedAt'] as Timestamp?)?.toDate(),
       zrDeliveryFee: (m['zrDeliveryFee'] as num? ?? 0.0).toDouble(),
       fees: (m['fees'] as num? ?? 0.0).toDouble(),
+      plGenerated: m['plGenerated'] as bool? ?? false,
+      plId: m['plId'] as String?,
     );
   }
 

@@ -14,22 +14,46 @@ class PurchasesService {
       .snapshots()
       .map((s) => s.docs.map(Purchase.fromDoc).toList());
 
-  /// Purchases previously created via "Create Purchase from Order" for
-  /// [orderId], used to block re-running CPO on the same order.
+  /// Purchases previously created via "Create Purchase from Order(s)" that
+  /// cover [orderId] — via the legacy single-order field or the newer
+  /// multi-order list — used to block re-running CPO on the same order.
   Stream<List<Purchase>> streamPurchasesForOrder(String orderId) => _col
-      .where('sourceOrderId', isEqualTo: orderId)
+      .where(
+        Filter.or(
+          Filter('sourceOrderId', isEqualTo: orderId),
+          Filter('sourceOrderIds', arrayContains: orderId),
+        ),
+      )
       .snapshots()
       .map((s) => s.docs.map(Purchase.fromDoc).toList());
 
-  /// Creates the purchase record only — stock is updated on confirm payment.
-  Future<void> createPurchase(Purchase purchase) =>
-      _col.doc(purchase.id).set(purchase.toMap());
+  /// Creates the purchase record and syncs each item's cost price onto its
+  /// product — stock is updated on confirm payment, but cost price always
+  /// reflects the latest purchase as soon as it's created.
+  Future<void> createPurchase(Purchase purchase) async {
+    await _col.doc(purchase.id).set(purchase.toMap());
+    await _syncCostPrices(purchase);
+  }
 
-  /// Overwrites supplier info, items and fees for an existing purchase. Only
-  /// reachable before payment is confirmed / the purchase is received, so
-  /// stock is never affected by this write.
-  Future<void> updatePurchase(Purchase purchase) =>
-      _col.doc(purchase.id).update(purchase.toMap());
+  /// Overwrites supplier info, items and fees for an existing purchase (and
+  /// re-syncs cost prices). Only reachable before payment is confirmed / the
+  /// purchase is received, so stock is never affected by this write.
+  Future<void> updatePurchase(Purchase purchase) async {
+    await _col.doc(purchase.id).update(purchase.toMap());
+    await _syncCostPrices(purchase);
+  }
+
+  /// Sets each item's product cost price to this purchase's unit cost.
+  Future<void> _syncCostPrices(Purchase purchase) async {
+    final batch = _db.batch();
+    for (final item in purchase.items) {
+      batch.update(
+        _db.collection('products').doc(item.productId),
+        {'costPrice': item.unitCost},
+      );
+    }
+    await batch.commit();
+  }
 
   /// Writes the per-item stock changes and matching inventory movements for
   /// this purchase. [apply] adds stock (purchase received); otherwise the

@@ -1,6 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:uuid/uuid.dart';
 
+import '../../orders/models/order.dart';
 import '../../purchases/models/purchase.dart';
 import '../models/purchase_list.dart';
 
@@ -42,6 +43,7 @@ class PurchaseListsService {
   final FirebaseFirestore _db;
   CollectionReference get _col => _db.collection('purchase_lists');
   CollectionReference get _purchasesCol => _db.collection('purchases');
+  CollectionReference get _ordersCol => _db.collection('orders');
 
   Stream<List<PurchaseList>> streamPurchaseLists() => _col
       .orderBy('createdAt', descending: true)
@@ -105,6 +107,68 @@ class PurchaseListsService {
     return list;
   }
 
+  /// Builds a single-group [PurchaseList] directly from [orders]' items —
+  /// the shortcut that skips supplier assignment entirely. Items are merged
+  /// by product across every order, netted against [stockByProductId] (any
+  /// quantity already covered by stock is dropped), and marks every source
+  /// order as `plGenerated` in the same batch.
+  Future<PurchaseList> generateFromOrders({
+    required List<Order> orders,
+    required Map<String, int> stockByProductId,
+  }) async {
+    final builder = _GroupBuilder(supplierName: 'No Supplier');
+    for (final o in orders) {
+      for (final item in o.items) {
+        builder.addItem(item.productId, item.productName, item.quantity);
+      }
+    }
+
+    final group = builder.build('unassigned');
+    final nettedItems = group.items
+        .map((i) {
+          final inStock = stockByProductId[i.productId] ?? 0;
+          final needed = i.quantity - inStock;
+          return needed > 0
+              ? PurchaseListItem(
+                  productId: i.productId,
+                  productName: i.productName,
+                  quantity: needed,
+                )
+              : null;
+        })
+        .whereType<PurchaseListItem>()
+        .toList();
+
+    final list = PurchaseList(
+      id: const Uuid().v4(),
+      createdAt: DateTime.now(),
+      isAllTime: false,
+      groups: nettedItems.isEmpty
+          ? []
+          : [
+              PurchaseListGroup(
+                key: 'unassigned',
+                supplierName: 'No Supplier',
+                items: nettedItems,
+              ),
+            ],
+      sourcePurchaseIds: const [],
+      origin: PurchaseListOrigin.order,
+      sourceOrderIds: orders.map((o) => o.id).toList(),
+    );
+
+    final batch = _db.batch();
+    batch.set(_col.doc(list.id), list.toMap());
+    for (final o in orders) {
+      batch.update(_ordersCol.doc(o.id), {
+        'plGenerated': true,
+        'plId': list.id,
+      });
+    }
+    await batch.commit();
+    return list;
+  }
+
   /// Toggles a single product's checklist state within a list. Uses a
   /// [FieldPath] so arbitrary supplier/product ids never need escaping.
   Future<void> setItemChecked({
@@ -118,17 +182,18 @@ class PurchaseListsService {
             checked,
       });
 
-  /// Deletes the list and resets every purchase that fed into it back to
-  /// `plGenerated: false` so it becomes eligible for a new list again.
-  /// Looks purchases up by `plId` (rather than the list's own
-  /// `sourcePurchaseIds`) so it still cleans up correctly even if a source
-  /// purchase was deleted in the meantime.
+  /// Deletes the list and resets every purchase/order that fed into it back
+  /// to `plGenerated: false` so it becomes eligible for a new list again.
+  /// Looks both up by `plId` (rather than the list's own
+  /// `sourcePurchaseIds`/`sourceOrderIds`) so it still cleans up correctly
+  /// even if a source purchase/order was deleted in the meantime.
   Future<void> deletePurchaseList(String id) async {
-    final sourceSnap =
+    final sourcePurchases =
         await _purchasesCol.where('plId', isEqualTo: id).get();
+    final sourceOrders = await _ordersCol.where('plId', isEqualTo: id).get();
 
     final batch = _db.batch();
-    for (final doc in sourceSnap.docs) {
+    for (final doc in [...sourcePurchases.docs, ...sourceOrders.docs]) {
       batch.update(doc.reference, {
         'plGenerated': false,
         'plId': null,

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../core/utils/phone_utils.dart';
 import '../../orders/models/order.dart';
 import '../models/hub.dart';
 
@@ -30,14 +31,14 @@ class ZrClient {
   CollectionReference get _hubsCol => _db.collection('zr_hubs');
 
   static String formatPhone(String raw) {
-    final digits = raw.replaceAll(RegExp(r'\D'), '');
-    if (!RegExp(r'^0[567]\d{8}$').hasMatch(digits)) {
+    final normalized = normalizeAlgerianPhone(raw);
+    if (normalized == null) {
       throw ZrServiceException(
-        'Invalid phone number "$raw" — must start with 05, 06, or 07 and '
-        'have 10 digits.',
+        'Invalid phone number "$raw" — must start with 05, 06, 07 '
+        '(or +213/213) and resolve to 10 digits.',
       );
     }
-    return '+213${digits.substring(1)}';
+    return '+213${normalized.substring(1)}';
   }
 
   Future<dynamic> _request(

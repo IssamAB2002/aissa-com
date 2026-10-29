@@ -117,35 +117,63 @@ class OrderCard extends StatelessWidget {
                   DateFormat('MMM d, y · h:mm a').format(order.createdAt),
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
-                if (order.paymentConfirmed)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check_circle_rounded,
-                            size: 12, color: AppColors.success),
-                        SizedBox(width: 4),
-                        Text(
-                          'Paid',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (order.zrSubmitted) ...[
+                      const _Badge(
+                        icon: Icons.local_shipping_outlined,
+                        label: 'ZR',
+                        color: AppColors.primary,
+                      ),
+                      if (order.paymentConfirmed) const SizedBox(width: 6),
+                    ],
+                    if (order.paymentConfirmed)
+                      const _Badge(
+                        icon: Icons.check_circle_rounded,
+                        label: 'Paid',
+                        color: AppColors.success,
+                      ),
+                  ],
+                ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge({required this.icon, required this.label, required this.color});
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

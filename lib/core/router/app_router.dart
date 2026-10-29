@@ -136,8 +136,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             !appUser.hasPermission(AppPermission.manageProducts)) {
           return _denied(loc);
         }
-        // Orders: Create Purchase from Order requires permission
-        if (loc.endsWith('/create-purchase') &&
+        // Orders: Create Purchase from Order(s) requires permission
+        if ((loc.endsWith('/create-purchase') ||
+                loc == '/orders/create-purchase-multi') &&
             !appUser.hasPermission(AppPermission.managePurchases)) {
           return _denied(loc);
         }
@@ -190,6 +191,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // Orders
       GoRoute(
           path: '/orders/new', builder: (c, s) => const CreateOrderScreen()),
+      GoRoute(
+        path: '/orders/create-purchase-multi',
+        builder: (c, s) => CreatePurchaseFromOrdersScreen(
+            orderIds: s.extra as List<String>),
+      ),
       GoRoute(
         path: '/orders/:id',
         builder: (c, s) =>
