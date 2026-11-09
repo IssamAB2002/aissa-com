@@ -31,3 +31,23 @@ This script only touches `creatorId`. It does not recompute `amountOwed` for ord
 that were confirmed-paid but never got credited under the old matching — that was an
 explicit choice to keep this backfill reversible-ish; handle historical reward balances
 separately if needed.
+
+## seed_emulator_data.js
+
+Seeds the **local Firebase emulator only** (never the real project — it hard-codes
+`FIRESTORE_EMULATOR_HOST`/`FIREBASE_AUTH_EMULATOR_HOST` itself and never reads
+`serviceAccountKey.json`) with mock products, suppliers, ZR territory/hub reference
+data, orders and purchases. Written for manually testing the Inventaire feature
+without needing a working ZR Express sync or touching real business data.
+
+```
+firebase emulators:start --config firebase.emulator.json --project aissa-com   # terminal 1
+cd scripts && npm install                                                        # once
+node seed_emulator_data.js            # seed (safe to re-run)
+node seed_emulator_data.js --reset    # delete previously seeded docs first, then reseed
+```
+
+All seeded docs use deterministic ids prefixed `seed-`, so `--reset` only ever removes
+what this script created. Prints a summary at the end listing which seeded orders/
+purchases/products are deliberately left unresolved/incomplete, to exercise each
+Inventaire step (resolve orders & purchases, cost-price gate, physical count).

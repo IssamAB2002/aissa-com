@@ -1,0 +1,13 @@
+// DEV/EMULATOR ONLY. These rules are permissive on purpose so the local
+// Firestore emulator (used for manual testing, e.g. the Inventaire feature)
+// never blocks reads/writes. Do NOT deploy this file — firestore.rules is
+// the real production rule set for the "aissa-com" project; this one is
+// only referenced by firebase.emulator.json.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

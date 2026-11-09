@@ -14,6 +14,11 @@ import '../../features/employees/screens/employees_screen.dart';
 import '../../features/employees/screens/reward_settings_screen.dart';
 import '../../features/income/screens/add_transaction_screen.dart';
 import '../../features/income/screens/income_screen.dart';
+import '../../features/inventaire/screens/inventaire_cost_price_gate_screen.dart';
+import '../../features/inventaire/screens/inventaire_count_screen.dart';
+import '../../features/inventaire/screens/inventaire_detail_screen.dart';
+import '../../features/inventaire/screens/inventaire_home_screen.dart';
+import '../../features/inventaire/screens/inventaire_resolve_screen.dart';
 import '../../features/inventory/screens/inventory_screen.dart';
 import '../../features/inventory/screens/movements_screen.dart';
 import '../../features/inventory/screens/stock_adjustment_screen.dart';
@@ -104,6 +109,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         // the individual screens directly (e.g. via the More menu).
         if (loc.startsWith('/directory')) return _denied(loc);
 
+        // Inventaire (periodic stock-take) is admin-only outright — no
+        // employee permission grants access, unlike other admin screens.
+        if (loc.startsWith('/inventaire')) return _denied(loc);
+
+        // The old Inventory tab (manual stock adjustments & movement
+        // history) moved to admin-only too — employees have no use for it
+        // and no nav entry points there anymore.
+        if (loc.startsWith('/inventory')) return _denied(loc);
+
         const permissionByPrefix = {
           '/income': AppPermission.viewIncome,
           '/employees': AppPermission.manageEmployees,
@@ -118,11 +132,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               !appUser.hasPermission(entry.value)) {
             return _denied(loc);
           }
-        }
-        // Inventory: stock adjustments or movement history require permission
-        if ((loc == '/inventory/adjust' || loc == '/inventory/movements') &&
-            !appUser.hasPermission(AppPermission.adjustInventory)) {
-          return _denied(loc);
         }
         // Tasks: add/edit require permission
         if ((loc == '/tasks/new' ||
@@ -297,6 +306,30 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/zr-settings',
           builder: (c, s) => const ZrSettingsScreen()),
+
+      // Inventaire (admin only — router blocks employees)
+      GoRoute(
+          path: '/inventaire', builder: (c, s) => const InventaireHomeScreen()),
+      GoRoute(
+        path: '/inventaire/:id/resolve',
+        builder: (c, s) => InventaireResolveScreen(
+            inventaireId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/inventaire/:id/cost-gate',
+        builder: (c, s) => InventaireCostPriceGateScreen(
+            inventaireId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/inventaire/:id/count',
+        builder: (c, s) => InventaireCountScreen(
+            inventaireId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/inventaire/:id',
+        builder: (c, s) =>
+            InventaireDetailScreen(inventaireId: s.pathParameters['id']!),
+      ),
     ],
   );
 });

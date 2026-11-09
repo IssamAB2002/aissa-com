@@ -37,6 +37,9 @@ class MoreScreen extends ConsumerWidget {
       path: '/income',
       permission: AppPermission.viewIncome,
     ),
+    // Admins already reach Employees via Directory; this card only matters
+    // for a non-admin employee who's been individually granted the
+    // permission (they have no Directory entry at all).
     _MenuItem(
       icon: Icons.people_outline,
       label: 'Employees',
@@ -44,6 +47,7 @@ class MoreScreen extends ConsumerWidget {
       color: AppColors.primary,
       path: '/employees',
       permission: AppPermission.manageEmployees,
+      hideWhenDirectoryShown: true,
     ),
     _MenuItem(
       icon: Icons.local_shipping_outlined,
@@ -63,12 +67,12 @@ class MoreScreen extends ConsumerWidget {
     ),
   ];
 
-  static const _inventoryItem = _MenuItem(
-    icon: Icons.inventory_2_outlined,
-    label: 'Inventory',
-    subtitle: 'Stock levels & movements',
-    color: AppColors.warning,
-    path: '/inventory',
+  static const _inventaireItem = _MenuItem(
+    icon: Icons.fact_check_outlined,
+    label: 'Inventaire',
+    subtitle: 'Periodic stock-take, archive & Excel export',
+    color: AppColors.primary,
+    path: '/inventaire',
   );
 
   @override
@@ -78,9 +82,10 @@ class MoreScreen extends ConsumerWidget {
     final isAdmin = appUser?.isAdmin ?? false;
     final items = [
       if (isAdmin) _directoryItem,
-      ..._permissionItems.where(
-          (item) => appUser?.hasPermission(item.permission!) ?? false),
-      _inventoryItem,
+      if (isAdmin) _inventaireItem,
+      ..._permissionItems.where((item) =>
+          (appUser?.hasPermission(item.permission!) ?? false) &&
+          !(isAdmin && item.hideWhenDirectoryShown)),
     ];
 
     return Scaffold(
@@ -182,6 +187,7 @@ class _MenuItem {
     required this.color,
     required this.path,
     this.permission,
+    this.hideWhenDirectoryShown = false,
   });
   final IconData icon;
   final String label;
@@ -189,4 +195,8 @@ class _MenuItem {
   final Color color;
   final String path;
   final String? permission;
+  // True for an item that duplicates a Directory tab — hidden for admins,
+  // who already reach it there; non-admins with the permission still need
+  // it since Directory itself is admin-only.
+  final bool hideWhenDirectoryShown;
 }

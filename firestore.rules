@@ -1,0 +1,76 @@
+// PRODUCTION rules for the "aissa-com" project. Deploy with:
+//   firebase deploy --only firestore:rules
+//
+// Baseline: every read/write requires a signed-in Firebase Auth user.
+// The app's own permission model (lib/features/auth/models/app_permission.dart,
+// AppUser.hasPermission / isAdmin) already gates screens and actions
+// client-side, and several business flows intentionally run as the acting
+// employee rather than an admin (e.g. crediting another employee's reward
+// share on order delivery, writing transactions/inventory movements as a
+// side effect of normal order/purchase processing). Enforcing each of
+// those per-permission checks server-side would require custom claims and
+// moving that logic into Cloud Functions; until that exists, these rules
+// require authentication everywhere and additionally lock down the two
+// areas where a gap would be a real privilege-escalation or data-exposure
+// risk: account role/permissions, and the admin-only Inventaire feature.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userData().role == 'admin';
+    }
+
+    // Accounts: a signed-up user may only create their own "employee" doc
+    // with no permissions (matches AuthService.registerEmployee — the
+    // self-service sign-up flow). Only an admin may promote a user or grant
+    // permissions afterwards; a non-admin updating their own doc cannot
+    // change `role` or `permissions`.
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isSignedIn() && request.auth.uid == uid &&
+          request.resource.data.role == 'employee' &&
+          (!('permissions' in request.resource.data) ||
+           request.resource.data.permissions.size() == 0);
+      allow update: if isAdmin() ||
+          (isSignedIn() && request.auth.uid == uid &&
+           request.resource.data.role == resource.data.role &&
+           request.resource.data.permissions == resource.data.permissions);
+      allow delete: if isAdmin();
+    }
+
+    // Inventaire: periodic stock-take sessions are admin-only outright, with
+    // no employee permission granting access (see app_router.dart's
+    // `/inventaire` redirect rule). Locks the session doc and every
+    // subcollection it owns (resolved_orders, resolved_purchases,
+    // resolved_order_payments, resolved_purchase_payments, stock_lines).
+    match /inventaires/{id} {
+      allow read, write: if isAdmin();
+      match /{subcollection}/{docId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    // Everything else the app uses: authenticated users only.
+    match /employees/{id} { allow read, write: if isSignedIn(); }
+    match /settings/{id} { allow read, write: if isSignedIn(); }
+    match /products/{id} { allow read, write: if isSignedIn(); }
+    match /orders/{id} { allow read, write: if isSignedIn(); }
+    match /transactions/{id} { allow read, write: if isSignedIn(); }
+    match /purchases/{id} { allow read, write: if isSignedIn(); }
+    match /purchase_lists/{id} { allow read, write: if isSignedIn(); }
+    match /suppliers/{id} { allow read, write: if isSignedIn(); }
+    match /tasks/{id} { allow read, write: if isSignedIn(); }
+    match /inventory_movements/{id} { allow read, write: if isSignedIn(); }
+    match /zr_hubs/{id} { allow read, write: if isSignedIn(); }
+    match /wilayas/{id} { allow read, write: if isSignedIn(); }
+    match /baladias/{id} { allow read, write: if isSignedIn(); }
+  }
+}

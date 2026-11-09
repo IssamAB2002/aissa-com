@@ -74,21 +74,17 @@ class AppShell extends ConsumerWidget {
       activeIcon: Icons.task_alt,
       path: '/tasks',
     ),
-    _NavTab(
-      label: 'Inventory',
-      icon: Icons.warehouse_outlined,
-      activeIcon: Icons.warehouse,
-      path: '/inventory',
-    ),
   ];
 
   // Routes under More that should highlight the More tab when active.
   // For employees: only _employeeTabs are used, so this only affects admins
-  // For admins: products and inventory are accessed via More menu, so highlight More tab
+  // For admins: products, inventory & inventaire are accessed via More menu,
+  // so highlight More tab
   static const _moreRoutes = [
     '/directory',
     '/products',
     '/inventory',
+    '/inventaire',
     '/income',
     '/employees',
     '/reward-settings',

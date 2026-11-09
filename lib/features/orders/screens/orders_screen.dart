@@ -38,6 +38,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   bool _multiCpoMode = false;
   final Set<String> _selectedForCpo = {};
   Employee? _employeeFilter;
+  bool _filtersExpanded = false;
 
   DateTimeRange? _activeDateRange() {
     final now = DateTime.now();
@@ -483,33 +484,40 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                 _selectedForCpo.clear();
               }),
             )
-          else
-            _FilterChips(
-              selected: _filter,
-              onSelected: (s) => setState(() => _filter = s),
-              showMultiZr: isAdmin,
-              onMultiZr: () => setState(() => _multiZrMode = true),
-              showMultiCp: isAdmin,
-              onMultiCp: () => setState(() => _multiCpMode = true),
-              showMultiPl: isAdmin,
-              onMultiPl: () => setState(() => _multiPlMode = true),
-              showMultiCpo: isAdmin,
-              onMultiCpo: () => setState(() => _multiCpoMode = true),
+          else ...[
+            _FilterToggleBar(
+              expanded: _filtersExpanded,
+              active: _filter != null ||
+                  _dateFilter != 'all' ||
+                  _employeeFilter != null,
+              onTap: () =>
+                  setState(() => _filtersExpanded = !_filtersExpanded),
             ),
-          _DateFilterChips(
-            selected: _dateFilter,
-            onSelected: (v) => setState(() => _dateFilter = v),
-            onCustom: _pickCustomRange,
-          ),
-          if (isAdmin &&
-              !_multiZrMode &&
-              !_multiCpMode &&
-              !_multiPlMode &&
-              !_multiCpoMode)
-            _EmployeeFilterChips(
-              selected: _employeeFilter,
-              onSelected: (e) => setState(() => _employeeFilter = e),
-            ),
+            if (_filtersExpanded) ...[
+              _FilterChips(
+                selected: _filter,
+                onSelected: (s) => setState(() => _filter = s),
+                showMultiZr: isAdmin,
+                onMultiZr: () => setState(() => _multiZrMode = true),
+                showMultiCp: isAdmin,
+                onMultiCp: () => setState(() => _multiCpMode = true),
+                showMultiPl: isAdmin,
+                onMultiPl: () => setState(() => _multiPlMode = true),
+                showMultiCpo: isAdmin,
+                onMultiCpo: () => setState(() => _multiCpoMode = true),
+              ),
+              _DateFilterChips(
+                selected: _dateFilter,
+                onSelected: (v) => setState(() => _dateFilter = v),
+                onCustom: _pickCustomRange,
+              ),
+              if (isAdmin)
+                _EmployeeFilterChips(
+                  selected: _employeeFilter,
+                  onSelected: (e) => setState(() => _employeeFilter = e),
+                ),
+            ],
+          ],
           Expanded(
             child: ordersAsync.when(
               loading: () =>
@@ -675,6 +683,60 @@ class _SearchBar extends StatelessWidget {
         decoration: const InputDecoration(
           hintText: 'Search by customer name...',
           prefixIcon: Icon(Icons.search, color: AppColors.textHint),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterToggleBar extends StatelessWidget {
+  const _FilterToggleBar({
+    required this.expanded,
+    required this.active,
+    required this.onTap,
+  });
+  final bool expanded;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        child: Row(
+          children: [
+            Icon(Icons.filter_list,
+                size: 18,
+                color: active ? AppColors.primary : AppColors.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              'Filters',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: active ? AppColors.primary : AppColors.textSecondary,
+              ),
+            ),
+            if (active) ...[
+              const SizedBox(width: 6),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+            const Spacer(),
+            Icon(
+              expanded ? Icons.expand_less : Icons.expand_more,
+              size: 20,
+              color: AppColors.textSecondary,
+            ),
+          ],
         ),
       ),
     );

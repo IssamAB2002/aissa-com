@@ -114,6 +114,9 @@ class AnalyticsData {
     return result.reversed.toList();
   }
 
+  PeriodSummary totalSummary(DateTime start, DateTime end) =>
+      _summary('Total', start, end);
+
   PeriodSummary _summary(String label, DateTime start, DateTime end) {
     final inRange = _transactions.where(
         (t) => !t.date.isBefore(start) && t.date.isBefore(end));

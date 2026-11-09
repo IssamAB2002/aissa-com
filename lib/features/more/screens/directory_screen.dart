@@ -48,7 +48,7 @@ class _DirectoryScreenState extends State<DirectoryScreen>
               const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           tabs: const [
             Tab(text: 'Products'),
-            Tab(text: 'Inventory'),
+            Tab(text: 'MSA'),
             Tab(text: 'Employees'),
             Tab(text: 'Reward Settings'),
             Tab(text: 'Suppliers'),

@@ -25,6 +25,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
   DateTimeRange? _customRange;
   bool _selectMode = false;
   final Set<String> _selectedIds = {};
+  bool _filtersExpanded = false;
 
   DateTimeRange? _activeDateRange() {
     final now = DateTime.now();
@@ -244,18 +245,27 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
                 _selectedIds.clear();
               }),
             )
-          else
-            _FilterChips(
-              selected: _filter,
-              onSelected: (s) => setState(() => _filter = s),
-              onSelectMode: () => setState(() => _selectMode = true),
-              onGeneratePl: _startGeneratePl,
+          else ...[
+            _FilterToggleBar(
+              expanded: _filtersExpanded,
+              active: _filter != null || _dateFilter != 'all',
+              onTap: () =>
+                  setState(() => _filtersExpanded = !_filtersExpanded),
             ),
-          _DateFilterChips(
-            selected: _dateFilter,
-            onSelected: (v) => setState(() => _dateFilter = v),
-            onCustom: _pickCustomRange,
-          ),
+            if (_filtersExpanded) ...[
+              _FilterChips(
+                selected: _filter,
+                onSelected: (s) => setState(() => _filter = s),
+                onSelectMode: () => setState(() => _selectMode = true),
+                onGeneratePl: _startGeneratePl,
+              ),
+              _DateFilterChips(
+                selected: _dateFilter,
+                onSelected: (v) => setState(() => _dateFilter = v),
+                onCustom: _pickCustomRange,
+              ),
+            ],
+          ],
           Expanded(
             child: purchasesAsync.when(
               loading: () =>
@@ -397,6 +407,60 @@ class _SelectModeHeader extends StatelessWidget {
             child: const Text('Cancel'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FilterToggleBar extends StatelessWidget {
+  const _FilterToggleBar({
+    required this.expanded,
+    required this.active,
+    required this.onTap,
+  });
+  final bool expanded;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        child: Row(
+          children: [
+            Icon(Icons.filter_list,
+                size: 18,
+                color: active ? AppColors.primary : AppColors.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              'Filters',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: active ? AppColors.primary : AppColors.textSecondary,
+              ),
+            ),
+            if (active) ...[
+              const SizedBox(width: 6),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+            const Spacer(),
+            Icon(
+              expanded ? Icons.expand_less : Icons.expand_more,
+              size: 20,
+              color: AppColors.textSecondary,
+            ),
+          ],
+        ),
       ),
     );
   }

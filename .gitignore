@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
 ZR_EXPRESS_INTEGRATION_PLAN.md
 prompt.md
 Rates_ZR_EXPRESS.md

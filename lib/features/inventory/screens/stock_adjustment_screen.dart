@@ -237,10 +237,14 @@ class _ProductSearchFieldState extends State<_ProductSearchField> {
   @override
   void initState() {
     super.initState();
-    _focus.addListener(() => setState(() => _open = _focus.hasFocus));
     if (widget.selectedProduct != null) {
       _ctrl.text = widget.selectedProduct!.name;
     }
+  }
+
+  void _closeDropdown() {
+    if (!_open) return;
+    setState(() => _open = false);
   }
 
   @override
@@ -277,7 +281,9 @@ class _ProductSearchFieldState extends State<_ProductSearchField> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
+    return TapRegion(
+      onTapOutside: (_) => _closeDropdown(),
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextField(
@@ -288,6 +294,7 @@ class _ProductSearchFieldState extends State<_ProductSearchField> {
             suffixIcon: Icon(Icons.keyboard_arrow_down,
                 color: AppColors.textSecondary),
           ),
+          onTap: () => setState(() => _open = true),
           onChanged: (v) {
             setState(() {
               _query = v;
@@ -362,6 +369,7 @@ class _ProductSearchFieldState extends State<_ProductSearchField> {
           ),
         ],
       ],
+      ),
     );
   }
 }
